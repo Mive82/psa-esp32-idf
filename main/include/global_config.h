@@ -6,9 +6,10 @@
 
 #define DEVKIT 1
 #define PEZO 2
+#define PEZOV2 3
 
 // #define ESP32_BOARD_TYPE PEZO
-#define ESP32_BOARD_TYPE PEZO
+#define ESP32_BOARD_TYPE PEZOV2
 
 #if (ESP32_BOARD_TYPE == PEZO)
 
@@ -20,6 +21,19 @@
 #define PSA_ADC_CHANNEL 5
 #define PSA_EXT_REG_PIN 27
 #define TSS_OE_ENABLE_PIN 32
+#define TJA_ENABLE_PIN -1
+
+#elif (ESP32_BOARD_TYPE == PEZOV2)
+
+#define VAN_RX_PIN GPIO_NUM_21
+#define VAN_RX_LED_PIN -1
+#define TSS_CS_PIN 22
+#define TSS_INT_PIN 18
+#define PSA_ADC_UNIT 0
+#define PSA_ADC_CHANNEL 5
+#define PSA_EXT_REG_PIN 27
+#define TSS_OE_ENABLE_PIN 19
+#define TJA_ENABLE_PIN 17
 
 #elif (ESP32_BOARD_TYPE == DEVKIT)
 
@@ -31,6 +45,7 @@
 #define PSA_ADC_CHANNEL 5
 #define PSA_EXT_REG_PIN -1
 #define TSS_OE_ENABLE_PIN -1
+#define TJA_ENABLE_PIN -1
 
 #else
 
@@ -42,6 +57,7 @@
 #define PSA_ADC_CHANNEL -1
 #define PSA_EXT_REG_PIN -1
 #define TSS_OE_ENABLE_PIN -1
+#define TJA_ENABLE_PIN -1
 
 #endif
 
