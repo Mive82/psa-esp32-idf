@@ -22,7 +22,10 @@ struct psa_radio_settings_byte_1
 struct psa_radio_settings_byte_2
 {
     uint8_t power_on : 1;
-    uint8_t : 7;
+    uint8_t request_power_on : 1; // Appears after 0x8c4 Radio event
+    uint8_t request_power_off : 1; // Appears after 0x8c4 Radio event
+    uint8_t : 4;
+    uint8_t ready : 1; // Disappear and reapperas after sending "Power on" command
 } __attribute__((packed));
 
 struct psa_radio_settings_byte_4
