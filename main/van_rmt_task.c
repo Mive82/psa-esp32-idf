@@ -135,7 +135,7 @@ void van_rmt_task(void* params)
             ret = van_parse_bytes(van_instance, &van_packets[packet_num], rx_data, packet_num);
             if(ret == MIVE_OK)
             {
-                event_item_to_send.ev_data = &van_packets[packet_num];
+                event_item_to_send.ev_data.rmt_van_packet = &van_packets[packet_num];
                 // printf("[%s] Sending to queue...\n", __func__);
                 xQueueSendToBack(global_queue_to_main, &event_item_to_send, 0);
 

@@ -76,7 +76,7 @@ IRAM_ATTR static void timer_callback_f(void* user_data)
     BaseType_t high_task_wakeup = pdFALSE;
     QueueHandle_t main_queue = (QueueHandle_t)user_data;
     struct mive_global_event timer_event = {
-        .ev_data = NULL,
+        .ev_data = {0},
         .event = MIVE_EVENT_TIMER_1S,
     };
     xQueueSendFromISR(main_queue, &timer_event, &high_task_wakeup);
@@ -91,8 +91,8 @@ IRAM_ATTR static void timer_callback_audio_timeout_f(void* user_data)
     BaseType_t high_task_wakeup = pdFALSE;
     QueueHandle_t main_queue = (QueueHandle_t)user_data;
     struct mive_global_event timer_event = {
-        .ev_data = NULL,
-        .event = MIVE_EVENT_VAN_CLOSE_AUDIO_MENU,
+        .ev_data = {0},
+        .event = MIVE_EVENT_EMF_CLOSE_AUDIO_MENU,
     };
     xQueueSendFromISR(main_queue, &timer_event, &high_task_wakeup);
     if(high_task_wakeup)
@@ -106,7 +106,7 @@ IRAM_ATTR static void timer_callback_oneshot_f(void* user_data)
     BaseType_t high_task_wakeup = pdFALSE;
     QueueHandle_t main_queue = (QueueHandle_t)user_data;
     struct mive_global_event timer_event = {
-        .ev_data = NULL,
+        .ev_data = {0},
         .event = MIVE_EVENT_TIMER_1MS,
     };
     timer_num++;
@@ -546,7 +546,7 @@ void main_task(void* params)
             case MIVE_EVENT_RMT_NEW_VAN_FRAME:
                 {
                     int stat_idx = 0;
-                    van_packet = (mive_van_packet_t*)event.ev_data;
+                    van_packet = event.ev_data.rmt_van_packet;
 
                     ret = psa_parse_van_packet(
                         van_packet->iden,
@@ -578,7 +578,7 @@ void main_task(void* params)
                     cdc_packet->header = temp_val;
                     cdc_packet->footer = temp_val;
                     tss_event.event = MIVE_EVENT_TSS_WRITE_FRAME;
-                    tss_event.ev_data = tss_packet;
+                    tss_event.ev_data.tss_event_data = tss_packet;
                     xQueueSendToBack(tss_queue, &tss_event, pdMS_TO_TICKS(100));
                 }
                 break;
@@ -595,7 +595,7 @@ void main_task(void* params)
                 if (unlikely(g_bat_voltage < 1))
                 {
                     struct mive_global_event sleep_event = {
-                        .ev_data = NULL,
+                        .ev_data = {0},
                         .event = MIVE_EVENT_GLOBAL_SLEEP
                     };
 
@@ -603,7 +603,7 @@ void main_task(void* params)
                 }
 
                 break;
-            case MIVE_EVENT_VAN_NEXT_AUDIO_MENU_ITEM:
+            case MIVE_EVENT_EMF_NEXT_AUDIO_MENU_ITEM:
                 if(!audio_menu_open)
                 {
                     esp_timer_start_once(timer_handle_audio_timeout, audio_menu_duration_ms * 1000);
@@ -620,28 +620,28 @@ void main_task(void* params)
                     audio_menu_setting++;
                     esp_timer_restart(timer_handle_audio_timeout, audio_menu_duration_ms * 1000);
                 }
-                ESP_LOGI(TAG, "[MIVE_EVENT_VAN_NEXT_AUDIO_MENU_ITEM] menu_open: %d, menu_setting: %d" , audio_menu_open, audio_menu_setting);
+                ESP_LOGI(TAG, "[MIVE_EVENT_EMF_NEXT_AUDIO_MENU_ITEM] menu_open: %d, menu_setting: %d" , audio_menu_open, audio_menu_setting);
                 libpsa_update_audio_settings_packet(audio_menu_open, audio_menu_setting);
                 libpsa_send_packet(PSA_IDENT_HEADUNIT);
                 break;
-            case MIVE_EVENT_VAN_UPDATE_AUDIO_MENU:
+            case MIVE_EVENT_EMF_UPDATE_AUDIO_MENU:
                 if(audio_menu_open)
                 {
                     esp_timer_restart(timer_handle_audio_timeout, audio_menu_duration_ms * 1000);
-                    ESP_LOGI(TAG, "[MIVE_EVENT_VAN_UPDATE_AUDIO_MENU] menu_open: %d, menu_setting: %d" , audio_menu_open, audio_menu_setting);
+                    ESP_LOGI(TAG, "[MIVE_EVENT_EMF_UPDATE_AUDIO_MENU] menu_open: %d, menu_setting: %d" , audio_menu_open, audio_menu_setting);
                     libpsa_update_audio_settings_packet(audio_menu_open, audio_menu_setting);
                     libpsa_send_packet(PSA_IDENT_HEADUNIT);
                 }
                 break;                
-            case MIVE_EVENT_VAN_CLOSE_AUDIO_MENU:
+            case MIVE_EVENT_EMF_CLOSE_AUDIO_MENU:
                 audio_menu_open = 0;
                 audio_menu_setting = 0;
-                ESP_LOGI(TAG, "[MIVE_EVENT_VAN_CLOSE_AUDIO_MENU] menu_open: %d, menu_setting: %d" , audio_menu_open, audio_menu_setting);
+                ESP_LOGI(TAG, "[MIVE_EVENT_EMF_CLOSE_AUDIO_MENU] menu_open: %d, menu_setting: %d" , audio_menu_open, audio_menu_setting);
                 libpsa_update_audio_settings_packet(audio_menu_open, audio_menu_setting);
                 libpsa_send_packet(PSA_IDENT_HEADUNIT);
                 break;
-            case MIVE_EVENT_UART_NEW_DATA:
-                uart_queue_packet = (mive_uart_queue_packet_t*)event.ev_data;
+            case MIVE_EVENT_VAN_NEW_DATA:
+                uart_queue_packet = event.ev_data.uart_update_data;
 
                 for(i = 0; i < uart_queue_packet->num_idens; ++i)
                 {
@@ -649,7 +649,7 @@ void main_task(void* params)
                 }
                 break;
             case MIVE_EVENT_UART_RECEIVE:
-                uart_recv_packet = (mive_uart_task_packet_t*)event.ev_data;
+                uart_recv_packet = event.ev_data.uart_task_data;
 
                 if(uart_recv_packet->iden >= PSA_MSP_MIN_IDENT && uart_recv_packet->iden < PSA_IDENT_SET_CD_CHANGER_DATA)
                 {
@@ -660,7 +660,7 @@ void main_task(void* params)
                     ESP_LOGI(TAG, "Sending Trip reset");
                     struct psa_trip_reset_data* data = (struct psa_trip_reset_data*)uart_recv_packet->data;
                     tss_trip_event.event = MIVE_EVENT_TSS_WRITE_FRAME;
-                    tss_trip_event.ev_data = tss_trip_packet;
+                    tss_trip_event.ev_data.tss_event_data = tss_trip_packet;
                     tss_trip_packet->packet_size = 2;
 
                     switch (data->trip_meter)

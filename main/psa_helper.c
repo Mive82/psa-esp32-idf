@@ -24,7 +24,7 @@ void libpsa_send_packet(uint16_t ident)
     mive_uart_task_packet_t* packet = get_uart_send_buffer();
     struct mive_global_event global_event = {
         .event = MIVE_EVENT_UART_SEND,
-        .ev_data = packet,
+        .ev_data.uart_task_data = packet,
     };
 
     switch (ident)

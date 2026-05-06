@@ -7,7 +7,9 @@ enum mive_global_event_t
 {
     MIVE_EVENT_NONE = 0,
     MIVE_EVENT_GLOBAL_SLEEP,
+
     MIVE_EVENT_RMT_NEW_VAN_FRAME,
+
     MIVE_EVENT_TSS_RESET,
     MIVE_EVENT_TSS_ACTIVATE,
     MIVE_EVENT_TSS_IDLE,
@@ -15,11 +17,12 @@ enum mive_global_event_t
     MIVE_EVENT_TSS_WRITE_FRAME,
     MIVE_EVENT_TSS_MONITOR_CHANNEL,
 
-    MIVE_EVENT_VAN_UPDATE_AUDIO_MENU,
-    MIVE_EVENT_VAN_NEXT_AUDIO_MENU_ITEM,
-    MIVE_EVENT_VAN_CLOSE_AUDIO_MENU,
+    MIVE_EVENT_EMF_UPDATE_AUDIO_MENU,
+    MIVE_EVENT_EMF_NEXT_AUDIO_MENU_ITEM,
+    MIVE_EVENT_EMF_CLOSE_AUDIO_MENU,
 
-    MIVE_EVENT_UART_NEW_DATA, // New VAN Data to send
+    MIVE_EVENT_VAN_NEW_DATA, // New VAN Data to send
+
     MIVE_EVENT_UART_RECEIVE, // Received data from UART
     MIVE_EVENT_UART_SEND, // Send data to UART
 
@@ -30,12 +33,6 @@ enum mive_global_event_t
     MIVE_EVENT_ADC,
     MIVE_EVENT_STATE_CHANGE,
     MIVE_EVENT_POWER,
-};
-
-struct mive_global_event
-{
-    enum mive_global_event_t event;
-    void* ev_data;
 };
 
 /* VAN Task type definitions */
@@ -84,6 +81,24 @@ typedef struct mive_uart_queue_packet
     uint16_t num_idens; // Number of idens to send
     uint16_t idens[10]; // uart message identifiers
 } mive_uart_queue_packet_t;
+
+/* Event struct definition */
+
+struct mive_global_event
+{
+    enum mive_global_event_t event;
+    union {
+        // `MIVE_EVENT_TSS_*`
+        mive_tss_task_packet_t* tss_event_data;
+        // `MIVE_EVENT_UART_*`
+        mive_uart_task_packet_t* uart_task_data;
+        // `MIVE_EVENT_VAN_*`
+        mive_uart_queue_packet_t* uart_update_data;
+        // `MIVE_EVENT_RMT_NEW_VAN_FRAME`
+        mive_van_packet_t* rmt_van_packet;
+        void* event_data;
+    } ev_data;
+};
 
 /* Task function definitions */
 

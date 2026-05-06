@@ -24,7 +24,7 @@ IRAM_ATTR static void uart_timer_callback_f(void* user_data)
     BaseType_t high_task_wakeup = pdFALSE;
     QueueHandle_t uart_queue = (QueueHandle_t)user_data;
     struct mive_global_event timer_event = {
-        .ev_data = NULL,
+        .ev_data = {0},
         .event = MIVE_EVENT_TIMER_1MS,
     };
     xQueueSendFromISR(uart_queue, &timer_event, &high_task_wakeup);
@@ -106,7 +106,7 @@ void uart_task(void* params)
                 break;
             
             case MIVE_EVENT_UART_SEND:
-                uart_packet = (mive_uart_task_packet_t*)event.ev_data;
+                uart_packet = event.ev_data.uart_task_data;
                 if(uart_packet->iden > PSA_MSP_MIN_IDENT && uart_packet->data_size < PSA_MSP_MAX_SIZE)
                 {
                     uart_data_buffer = uart_buffer + sizeof(*psa_packet_header);
@@ -147,7 +147,7 @@ void uart_rx_task(void* params)
     QueueHandle_t uart_queue = g_global_state.global_uart_queue;
     struct mive_global_event global_event = {
         .event = MIVE_EVENT_UART_RECEIVE,
-        .ev_data = NULL,
+        .ev_data = {0},
     };
     uint8_t* rx_buffer = malloc(2048);
     uint8_t* data;
@@ -175,7 +175,7 @@ void uart_rx_task(void* params)
                     task_packet->iden = header->ident;
                     task_packet->data_size = header->size;
                     memcpy(task_packet->data, data, header->size);
-                    global_event.ev_data = task_packet;
+                    global_event.ev_data.uart_task_data = task_packet;
                     xQueueSendToBack(main_queue, &global_event, 0);
                 }
             }

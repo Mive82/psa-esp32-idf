@@ -186,7 +186,7 @@ void tss_task(void* params)
             switch (event_data.event)
             {
             case MIVE_EVENT_TSS_WRITE_FRAME:
-                ret = tss_send_frame(instance, (mive_tss_task_packet_t*)event_data.ev_data);
+                ret = tss_send_frame(instance, event_data.ev_data.tss_event_data);
                 // if(ret == MIVE_OK)
                 // {
                 //     event_data.event = MIVE_EVENT_TSS_MONITOR_CHANNEL;
@@ -196,7 +196,7 @@ void tss_task(void* params)
                 
 
             case MIVE_EVENT_TSS_MONITOR_CHANNEL:
-                ret = tss_check_channel_status(instance, (mive_tss_task_packet_t*)event_data.ev_data);
+                ret = tss_check_channel_status(instance, event_data.ev_data.tss_event_data);
                 if(ret == MIVE_TSS_TX_INPROGRESS)
                 {
                     // Send back to queue

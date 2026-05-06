@@ -46,7 +46,7 @@ static uint32_t mileage_swap_bytes(union dash_mileage const mileage)
     return temp_mileage;
 }
 
-static mive_uart_queue_packet_t* get_packet_buffer(void)
+static mive_uart_queue_packet_t* get_uart_packet_buffer(void)
 {
     mive_uart_queue_packet_t* to_ret = &packet_buffers[packet_buffer_num];
 
@@ -71,12 +71,12 @@ static int psa_parse_buttons_iden(
         // Refresh the timer when audio up or down buttons are pressed
         if (((data[2] & 0x1F) == 0x11 || (data[2] & 0x1F) == 0x12))
         {
-            event.event = MIVE_EVENT_VAN_UPDATE_AUDIO_MENU;
+            event.event = MIVE_EVENT_EMF_UPDATE_AUDIO_MENU;
         }
         // Change the menu when the audio button is let go. Will probably go tits up when the button is held down for more than 2 secs
         if (data[2] == 0x56)
         {
-            event.event = MIVE_EVENT_VAN_NEXT_AUDIO_MENU_ITEM;
+            event.event = MIVE_EVENT_EMF_NEXT_AUDIO_MENU_ITEM;
         }
     }
 
@@ -93,7 +93,7 @@ static int psa_parse_rpm_iden(
     struct psa_output_data_buffers *data_buffers)
 {
     struct mive_global_event queue_event = {
-        .event = MIVE_EVENT_UART_NEW_DATA
+        .event = MIVE_EVENT_VAN_NEW_DATA
     };
     mive_uart_queue_packet_t* queue_packet;
 
@@ -109,12 +109,12 @@ static int psa_parse_rpm_iden(
     engine_data->rpm = be16toh(rpm_data->rpm);
     engine_data->speed = be16toh(rpm_data->speed);
 
-    queue_packet = get_packet_buffer();
+    queue_packet = get_uart_packet_buffer();
 
     queue_packet->idens[0] = PSA_IDENT_ENGINE;
     queue_packet->num_idens = 1;
 
-    queue_event.ev_data = (void*)queue_packet;
+    queue_event.ev_data.uart_update_data = queue_packet;
 
     xQueueSendToBack(g_global_state.global_main_queue, &queue_event, 0);
 
@@ -140,13 +140,13 @@ static int psa_parse_dash_iden(
         return -MIVE_ERR_INVALID_ARGUMENT;
     }
 
-    queue_packet = get_packet_buffer();
+    queue_packet = get_uart_packet_buffer();
     
     *queue_packet = queue_packet_c;
 
     struct mive_global_event queue_event = {
-        .event = MIVE_EVENT_UART_NEW_DATA,
-        .ev_data = queue_packet,
+        .event = MIVE_EVENT_VAN_NEW_DATA,
+        .ev_data.uart_update_data = queue_packet,
     };
 
     struct psa_dash_data *dash_data = (struct psa_dash_data *)(data_buffers->dash_data);
@@ -196,13 +196,13 @@ static int psa_parse_trip_iden(
         return -MIVE_ERR_INVALID_ARGUMENT;
     }
 
-    queue_packet = get_packet_buffer();
+    queue_packet = get_uart_packet_buffer();
     
     *queue_packet = queue_packet_c;
 
     struct mive_global_event queue_event = {
-        .event = MIVE_EVENT_UART_NEW_DATA,
-        .ev_data = queue_packet,
+        .event = MIVE_EVENT_VAN_NEW_DATA,
+        .ev_data.uart_update_data = queue_packet,
     };
 
     struct psa_trip_data *trip_data = (struct psa_trip_data *)(data_buffers->trip_data);
@@ -259,13 +259,13 @@ static int psa_parse_radio_tuner_iden(
         return -MIVE_ERR_VAN_UNKNOWN_IDEN;
     }
 
-    queue_packet = get_packet_buffer();
+    queue_packet = get_uart_packet_buffer();
     
     *queue_packet = queue_packet_c;
 
     struct mive_global_event queue_event = {
-        .event = MIVE_EVENT_UART_NEW_DATA,
-        .ev_data = queue_packet,
+        .event = MIVE_EVENT_VAN_NEW_DATA,
+        .ev_data.uart_update_data = queue_packet,
     };
 
     struct psa_van_radio_freq_info *van_data = (struct psa_van_radio_freq_info *)data;
@@ -347,13 +347,13 @@ static int psa_parse_radio_cd_short_iden(
         return -MIVE_ERR_VAN_UNKNOWN_IDEN;
     }
 
-    queue_packet = get_packet_buffer();
+    queue_packet = get_uart_packet_buffer();
     
     *queue_packet = queue_packet_c;
 
     struct mive_global_event queue_event = {
-        .event = MIVE_EVENT_UART_NEW_DATA,
-        .ev_data = queue_packet,
+        .event = MIVE_EVENT_VAN_NEW_DATA,
+        .ev_data.uart_update_data = queue_packet,
     };
 
     struct psa_van_radio_cd_info_len_10 *van_data = (struct psa_van_radio_cd_info_len_10 *)data;
@@ -427,13 +427,13 @@ static int psa_parse_radio_cd_long_iden(
         return -MIVE_ERR_VAN_UNKNOWN_IDEN;
     }
 
-    queue_packet = get_packet_buffer();
+    queue_packet = get_uart_packet_buffer();
     
     *queue_packet = queue_packet_c;
 
     struct mive_global_event queue_event = {
-        .event = MIVE_EVENT_UART_NEW_DATA,
-        .ev_data = queue_packet,
+        .event = MIVE_EVENT_VAN_NEW_DATA,
+        .ev_data.uart_update_data = queue_packet,
     };
 
     struct psa_van_radio_cd_info_len_19 *van_data = (struct psa_van_radio_cd_info_len_19 *)data;
@@ -538,13 +538,13 @@ static int psa_parse_headunit_iden(
         return -MIVE_ERR_INVALID_ARGUMENT;
     }
 
-    queue_packet = get_packet_buffer();
+    queue_packet = get_uart_packet_buffer();
     
     *queue_packet = queue_packet_c;
 
     struct mive_global_event queue_event = {
-        .event = MIVE_EVENT_UART_NEW_DATA,
-        .ev_data = queue_packet,
+        .event = MIVE_EVENT_VAN_NEW_DATA,
+        .ev_data.uart_update_data = queue_packet,
     };
 
     struct psa_van_radio_settings *van_data = (struct psa_van_radio_settings *)data;
@@ -612,13 +612,13 @@ static int psa_parse_vin_iden(
         return -MIVE_ERR_INVALID_ARGUMENT;
     }
 
-    queue_packet = get_packet_buffer();
+    queue_packet = get_uart_packet_buffer();
     
     *queue_packet = queue_packet_c;
 
     struct mive_global_event queue_event = {
-        .event = MIVE_EVENT_UART_NEW_DATA,
-        .ev_data = queue_packet,
+        .event = MIVE_EVENT_VAN_NEW_DATA,
+        .ev_data.uart_update_data = queue_packet,
     };
     // char *vin = (char *)data_buffers->vin_data;
     int const vin_size = 17;
@@ -646,13 +646,13 @@ static int psa_parse_instruments_short_iden(
         return -MIVE_ERR_INVALID_ARGUMENT;
     }
 
-    queue_packet = get_packet_buffer();
+    queue_packet = get_uart_packet_buffer();
     
     *queue_packet = queue_packet_c;
 
     struct mive_global_event queue_event = {
-        .event = MIVE_EVENT_UART_NEW_DATA,
-        .ev_data = queue_packet,
+        .event = MIVE_EVENT_VAN_NEW_DATA,
+        .ev_data.uart_update_data = queue_packet,
     };
 
     struct psa_engine_data *engine_data = (struct psa_engine_data *)data_buffers->engine_data;
@@ -682,13 +682,13 @@ static int psa_parse_instruments_long_iden(
         return -MIVE_ERR_INVALID_ARGUMENT;
     }
 
-    queue_packet = get_packet_buffer();
+    queue_packet = get_uart_packet_buffer();
     
     *queue_packet = queue_packet_c;
 
     struct mive_global_event queue_event = {
-        .event = MIVE_EVENT_UART_NEW_DATA,
-        .ev_data = queue_packet,
+        .event = MIVE_EVENT_VAN_NEW_DATA,
+        .ev_data.uart_update_data = queue_packet,
     };
 
     struct psa_engine_data *engine_data = (struct psa_engine_data *)data_buffers->engine_data;
@@ -718,13 +718,13 @@ static int psa_parse_car_status_2_short(
         return -MIVE_ERR_INVALID_ARGUMENT;
     }
 
-    queue_packet = get_packet_buffer();
+    queue_packet = get_uart_packet_buffer();
     
     *queue_packet = queue_packet_c;
 
     struct mive_global_event queue_event = {
-        .event = MIVE_EVENT_UART_NEW_DATA,
-        .ev_data = queue_packet,
+        .event = MIVE_EVENT_VAN_NEW_DATA,
+        .ev_data.uart_update_data = queue_packet,
     };
 
 
@@ -757,13 +757,13 @@ static int psa_parse_car_status_2_long(
         return -MIVE_ERR_INVALID_ARGUMENT;
     }
 
-    queue_packet = get_packet_buffer();
+    queue_packet = get_uart_packet_buffer();
     
     *queue_packet = queue_packet_c;
 
     struct mive_global_event queue_event = {
-        .event = MIVE_EVENT_UART_NEW_DATA,
-        .ev_data = queue_packet,
+        .event = MIVE_EVENT_VAN_NEW_DATA,
+        .ev_data.uart_update_data = queue_packet,
     };
 
     struct psa_status_data *status_data = (struct psa_status_data *)data_buffers->status_data;
@@ -794,13 +794,13 @@ static int psa_parse_cdc_command(
         return -MIVE_ERR_INVALID_ARGUMENT;
     }
 
-    queue_packet = get_packet_buffer();
+    queue_packet = get_uart_packet_buffer();
     
     *queue_packet = queue_packet_c;
 
     struct mive_global_event queue_event = {
-        .event = MIVE_EVENT_UART_NEW_DATA,
-        .ev_data = queue_packet,
+        .event = MIVE_EVENT_VAN_NEW_DATA,
+        .ev_data.uart_update_data = queue_packet,
     };
 
     struct psa_status_data *status_data = (struct psa_status_data *)data_buffers->status_data;
