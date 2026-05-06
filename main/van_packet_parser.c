@@ -61,23 +61,37 @@ static int psa_parse_buttons_iden(
 {
     struct mive_global_event event = {0};
 
+    struct VanEventRadioStructs const* radio_event = (struct VanEventRadioStructs const*)data;
+
     if (data_buffers->headunit_data == NULL)
     {
         return -MIVE_ERR_INVALID_ARGUMENT;
     }
 
-    if ((data[1] & 0x0F) == 0x02)
+    if(radio_event->EventId.event_src != VAN_EVENT_SRC_RADIO)
     {
-        // Refresh the timer when audio up or down buttons are pressed
-        if (((data[2] & 0x1F) == 0x11 || (data[2] & 0x1F) == 0x12))
+        // Not radio
+        return -MIVE_ERR_NOT_IMPLEMENTED;
+    }
+
+    if(radio_event->Event.event_keyboard)
+    {
+        if(radio_event->Button.push_type == VAN_EVENT_RADIO_BUTTON_PUSH_TYPE_RELEASE)
         {
-            event.event = MIVE_EVENT_EMF_UPDATE_AUDIO_MENU;
+            switch (radio_event->Button.radio_button)
+            {
+            case VAN_EVENT_RADIO_BUTTON_UP_AUDIO_PLUS:
+            case VAN_EVENT_RADIO_BUTTON_DOWN_AUDIO_MINUS:
+                event.event = MIVE_EVENT_EMF_UPDATE_AUDIO_MENU;
+                break;
+            case VAN_EVENT_RADIO_BUTTON_AUDIO:
+                event.event = MIVE_EVENT_EMF_NEXT_AUDIO_MENU_ITEM;
+                break;
+            default:
+                break;
+            }
         }
-        // Change the menu when the audio button is let go. Will probably go tits up when the button is held down for more than 2 secs
-        if (data[2] == 0x56)
-        {
-            event.event = MIVE_EVENT_EMF_NEXT_AUDIO_MENU_ITEM;
-        }
+
     }
 
     if(event.event)
@@ -953,7 +967,7 @@ int psa_parse_van_packet(
         }
 
     case PSA_VAN_IDEN_DEVICE_REPORT:
-        if (size == 3)
+        if ((size == 3) || (size == 2))
         {
             return psa_parse_buttons_iden(data, (struct psa_output_data_buffers *)data_buffers);
         }

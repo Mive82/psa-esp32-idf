@@ -40,8 +40,23 @@ volatile float g_bat_voltage = 0.0f;
 
 static const char *TAG = "MAIN";
 
+#if (ESP32_BOARD_TYPE == PEZO)
+
 static const float ADC_R2 = 523000;
 static const float ADC_R1 = 2000000;
+
+#elif (ESP32_BOARD_TYPE == PEZOV2)
+
+static const float ADC_R2 = 10000;
+static const float ADC_R1 = 90000;
+
+#else
+
+static const float ADC_R2 = 10000;
+static const float ADC_R1 = 10000;
+
+#endif
+
 static const int audio_menu_duration_ms = 4000;
 
 static int timer_num = 0;
@@ -457,15 +472,18 @@ void main_task(void* params)
     mive_uart_queue_packet_t* uart_queue_packet = NULL;
     mive_uart_task_packet_t* uart_recv_packet = NULL;
 
-#if (ESP32_BOARD_TYPE == PEZO)
+#if (ESP32_BOARD_TYPE != DEVKIT)
     esp_rom_gpio_pad_select_gpio(PSA_EXT_REG_PIN);
     esp_rom_gpio_pad_select_gpio(TSS_OE_ENABLE_PIN);
+    esp_rom_gpio_pad_select_gpio(TJA_ENABLE_PIN);
 
     gpio_set_direction(PSA_EXT_REG_PIN, GPIO_MODE_OUTPUT);
     gpio_set_direction(TSS_OE_ENABLE_PIN, GPIO_MODE_OUTPUT);
+    gpio_set_direction(TJA_ENABLE_PIN, GPIO_MODE_OUTPUT);
     
     gpio_set_level(PSA_EXT_REG_PIN, 1);
     gpio_set_level(TSS_OE_ENABLE_PIN, 1);
+    gpio_set_level(TJA_ENABLE_PIN, 0);
 
 #endif
 
@@ -554,10 +572,10 @@ void main_task(void* params)
                         van_packet->packet,
                         &global_libpsa_buffers);
 
-                    if (ret != MIVE_OK)
-                    {
-                        ESP_LOGE(TAG, "Error parsing packet 0x%03x", van_packet->iden);
-                    }
+                    // if (ret != MIVE_OK)
+                    // {
+                    //     ESP_LOGE(TAG, "Error parsing packet 0x%03x", van_packet->iden);
+                    // }
 
                     // calculate_car_state();
                     // printf("[%s] Received: 0x%3x ", __func__, van_packet->iden);
@@ -588,6 +606,7 @@ void main_task(void* params)
                 ESP_ERROR_CHECK(adc_cali_raw_to_voltage(cali_handle, adc_raw, &voltage_in));
                 
                 g_bat_voltage = (voltage_in * 0.001f * (ADC_R1 + ADC_R2)) / ADC_R2;
+                // ESP_LOGI(TAG, "Voltage: %.3f", g_bat_voltage);
                 global_libpsa_buffers.status_data->voltage = (uint16_t)(g_bat_voltage * 1000);
                 libpsa_send_packet(PSA_IDENT_CAR_STATUS);
                 esp_timer_start_once(timer_handle_oneshot, 50000);
