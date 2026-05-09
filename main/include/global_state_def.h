@@ -30,8 +30,33 @@ struct mive_global_state_t
 
 };
 
+struct mive_radio_state_t
+{
+    uint8_t economy_mode;
+    // Radio stuff
+    uint8_t radio_state_current;
+    uint8_t radio_state_target;
+    uint8_t radio_state_ignition;
+    uint8_t radio_source;
+    int8_t radio_setting_volume;
+    int8_t radio_setting_bass;
+    int8_t radio_setting_treble;
+    int8_t radio_setting_balance;
+    int8_t radio_setting_fader;
+    uint8_t radio_setting_auto_vol;
+    uint8_t radio_setting_loudness;
+    uint8_t radio_menu_state;
+    uint8_t radio_554_state;
+
+    uint8_t keyboard_override;
+    uint8_t radio_cd_present;
+    uint8_t accessory;
+    uint8_t ignition;
+};
+
 extern struct mive_global_state_t g_global_state;
-extern volatile int g_global_car_state;
+extern struct mive_radio_state_t g_radio_state;
+extern volatile uint8_t g_global_car_state;
 extern volatile float g_bat_voltage;
 
 #endif // MIVE_GLOBAL_STATE_H

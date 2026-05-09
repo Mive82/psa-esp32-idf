@@ -28,13 +28,15 @@
 #include "include/van_structs/van_cdc_emulator_structs.h"
 #include "include/van/van_packet_parser.h"
 #include "include/mive/psa_packet_defs.h"
+#include "include/van_structs.h"
 
 #include "include/mive/psa_helper.h"
 
 
 #define ARRAY_SIZE_OFFSET   5
 mive_global_state_t g_global_state = {0};
-volatile int g_global_car_state = PSA_STATE_CAR_SLEEP;
+struct mive_radio_state_t g_radio_state = {0};
+volatile uint8_t g_global_car_state = PSA_STATE_CAR_SLEEP;
 volatile int g_global_ext_power_state = 1;
 volatile float g_bat_voltage = 0.0f;
 
@@ -65,7 +67,7 @@ struct psa_output_data_buffers global_libpsa_buffers;
 
 mive_uart_task_packet_t* global_uart_send_buffers;
 mive_uart_task_packet_t* global_uart_receive_buffers;
-
+mive_tss_task_packet_t* global_tss_buffers;
 
 RTC_DATA_ATTR int rtc_data_valid = 0;
 RTC_DATA_ATTR struct psa_preset_data rtc_preset_data[4];
@@ -92,7 +94,7 @@ IRAM_ATTR static void timer_callback_f(void* user_data)
     QueueHandle_t main_queue = (QueueHandle_t)user_data;
     struct mive_global_event timer_event = {
         .ev_data = {0},
-        .event = MIVE_EVENT_TIMER_1S,
+        .event = MIVE_EVENT_TIMER_100MS,
     };
     xQueueSendFromISR(main_queue, &timer_event, &high_task_wakeup);
     if(high_task_wakeup)
@@ -219,14 +221,14 @@ exit:    //Common return path
 /**
  * @brief Setup the ULP as a wake source to wake the ESP up
  * when the ADC reading goes above `high_adc_treshold`.
- * 
- * @param high_adc_treshold 
+ *
+ * @param high_adc_treshold
  */
 void ulp_adc_wake_up(unsigned int high_adc_treshold)
 {
     esp_err_t err;
     adc_oneshot_unit_handle_t adc1_handle = g_global_state.adc_handle;
-    
+
     ulp_adc_cfg_t adc_cfg = {
         .adc_n = PSA_ADC_UNIT,
         .channel = PSA_ADC_CHANNEL,
@@ -234,7 +236,7 @@ void ulp_adc_wake_up(unsigned int high_adc_treshold)
         .atten = ADC_ATTEN_DB_12,
         .ulp_mode = ADC_ULP_MODE_FSM
     };
-    
+
     const ulp_insn_t program[] = {
         I_MOVI(R0, 0),                // Set reg. R0 to initial 0
         I_MOVI(R2, 0),                // Set reg. R2 to initial 0
@@ -251,7 +253,7 @@ void ulp_adc_wake_up(unsigned int high_adc_treshold)
         I_END(),                      // Stop ULP program timer
         I_HALT(),                     // Halt the coprocessor
     };
-    
+
     adc_oneshot_del_unit(adc1_handle);
 
     ESP_ERROR_CHECK(ulp_adc_init(&adc_cfg));
@@ -294,6 +296,19 @@ void update_car_state(int new_state)
         return;
     }
 
+    if(new_state <= PSA_STATE_RADIO_ON && g_global_car_state > new_state)
+    {
+        g_radio_state.radio_state_target = 0;
+        g_radio_state.keyboard_override = 0;
+        rd3_send_state_change();
+    }
+
+    if(new_state >= PSA_STATE_ACCESSORY && g_global_car_state < PSA_STATE_RADIO_ON)
+    {
+        g_radio_state.radio_state_target = 1;
+        rd3_send_state_change();
+    }
+
     ESP_LOGI(TAG, "[%s] New state = %s", __func__, car_state_str[new_state]);
     g_global_car_state = new_state;
     global_libpsa_buffers.status_data->car_state = g_global_car_state;
@@ -317,11 +332,11 @@ void calculate_car_state(void)
         ext_power_status = 1;
     }
     // PSA_STATE_ECONOMY_MODE
-    // else if (dash_packet.packet.data.economy_mode)
-    // {
-    //     update_car_state(PSA_STATE_ECONOMY_MODE);
-    //     ext_power_status = 0;
-    // }
+    else if (g_radio_state.economy_mode)
+    {
+        update_car_state(PSA_STATE_ECONOMY_MODE);
+        ext_power_status = 0;
+    }
     // PSA_STATE_CRANKING
     else if (acc_state == 0 &&
              ign_state == 1)
@@ -370,27 +385,28 @@ void calculate_car_state(void)
 
 void app_main(void)
 {
+    int ret = 0;
     // To TSS task
     QueueHandle_t tss_queue = xQueueCreate(10, sizeof(struct mive_global_event));
-    
+
     // To VAN task
     QueueHandle_t van_queue = xQueueCreate(10, sizeof(struct mive_global_event));
-    
+
     // To main task
     QueueHandle_t main_queue = xQueueCreate(20, sizeof(struct mive_global_event));
 
     // To uart task
     QueueHandle_t uart_queue = xQueueCreate(10, sizeof(struct mive_global_event));
-    
+
     g_global_state.global_tss_queue = tss_queue;
     g_global_state.global_van_queue = van_queue;
     g_global_state.global_main_queue = main_queue;
     g_global_state.global_uart_queue = uart_queue;
 
     init_adc();
-    
+
     init_libpsa_packets();
-    
+
     if(rtc_data_valid)
     {
         memcpy(global_libpsa_buffers.presets_data_am, &rtc_preset_data[PSA_PRESET_AM], sizeof(struct psa_preset_data));
@@ -399,30 +415,36 @@ void app_main(void)
         memcpy(global_libpsa_buffers.presets_data_fm_ast, &rtc_preset_data[PSA_PRESET_FMAST], sizeof(struct psa_preset_data));
     }
 
+    ret = gpio_install_isr_service(ESP_INTR_FLAG_IRAM);
+    if(ret != ESP_OK)
+    {
+        ESP_ERROR_CHECK(ret);
+    }
+
     xTaskCreatePinnedToCore(
         main_task,
         "main_task",
-        10240, 
+        10240,
         NULL, 20, NULL, 0);
 
     xTaskCreatePinnedToCore(
         tss_task,
         "tss_task",
-        5120, 
+        5120,
         &g_global_state, 10, NULL, 0);
 
     xTaskCreatePinnedToCore(
         van_rmt_task,
         "van_rx_task",
-        5120, 
+        5120,
         &g_global_state, 15, NULL, 1);
 
     xTaskCreatePinnedToCore(
         uart_task,
         "uart_task",
-        5120, 
+        5120,
         &g_global_state, 15, NULL, 0);
-    
+
     // xTaskCreatePinnedToCore(stats_task, "stats", 4096, NULL, 3, NULL, tskNO_AFFINITY);
 }
 
@@ -445,10 +467,7 @@ void main_task(void* params)
 {
     struct mive_global_event event = {0};
     struct mive_global_event tss_event = {0};
-    struct mive_global_event tss_trip_event = {0};
-    struct van_cd_changer_packet* cdc_packet;
-    mive_tss_task_packet_t *tss_packet = malloc(sizeof(*tss_packet));
-    mive_tss_task_packet_t *tss_trip_packet = malloc(sizeof(*tss_packet));
+
     int ret = 0;
     int count = 0;
     int i;
@@ -456,13 +475,17 @@ void main_task(void* params)
     int num_timer_ms = 0;
     int audio_menu_open = 0;
     int audio_menu_setting = 0;
+    int trip_reset = 0;
+
+    unsigned int centis = 0;
+
     QueueHandle_t main_queue = g_global_state.global_main_queue;
     QueueHandle_t tss_queue = g_global_state.global_tss_queue;
     QueueHandle_t van_queue = g_global_state.global_van_queue;
     QueueHandle_t uart_queue = g_global_state.global_uart_queue;
     adc_oneshot_unit_handle_t adc1_handle = g_global_state.adc_handle;
     adc_cali_handle_t cali_handle = g_global_state.cali_handle;
-    
+
     esp_timer_handle_t timer_handle;
     esp_timer_handle_t timer_handle_oneshot;
     esp_timer_handle_t timer_handle_audio_timeout;
@@ -480,41 +503,22 @@ void main_task(void* params)
     gpio_set_direction(PSA_EXT_REG_PIN, GPIO_MODE_OUTPUT);
     gpio_set_direction(TSS_OE_ENABLE_PIN, GPIO_MODE_OUTPUT);
     gpio_set_direction(TJA_ENABLE_PIN, GPIO_MODE_OUTPUT);
-    
+
     gpio_set_level(PSA_EXT_REG_PIN, 1);
     gpio_set_level(TSS_OE_ENABLE_PIN, 1);
     gpio_set_level(TJA_ENABLE_PIN, 0);
 
 #endif
 
+    // Setup the TSS packet events
 
-    tss_packet->iden = PSA_VAN_IDEN_CDCHANGER;
-    tss_packet->packet_size = sizeof(*cdc_packet);
-    tss_packet->message_type = TSS_IMM_REPLY;
-    tss_packet->message_channel = 2;
+    // emf_receive(0x8c4);
 
-    tss_trip_packet->iden = PSA_VAN_IDEN_MFD_STATUS; // 0x5E4
-    tss_trip_packet->packet_size = 2;
-    tss_trip_packet->message_type = TSS_TRANSMIT;
-    tss_trip_packet->message_channel = 1;
-    tss_trip_packet->packet[0] = 0x00;
-    tss_trip_packet->packet[1] = 0xFF;
+    // emf_send_reply_request(0x4d4);
 
-    cdc_packet = (struct van_cd_changer_packet*)tss_packet->packet;
+    // emf_send_reply_request(0x554);
 
-    memset(cdc_packet, 0, sizeof(*cdc_packet));
-
-    cdc_packet->cd_flag = 1;
-    cdc_packet->cd_num = 1;
-    cdc_packet->cd_present = VAN_CDC_CD_PRESENT;
-    cdc_packet->header = 0x80;
-    cdc_packet->footer = 0x80;
-    cdc_packet->minutes = 1;
-    cdc_packet->seconds = 1;
-    cdc_packet->shuffle = 0;
-    cdc_packet->status = VAN_CDC_ON_PLAYING;
-    cdc_packet->total_tracks = 1;
-    cdc_packet->track_num = 1;
+    // emf_send_reply_request(0x564);
 
     esp_timer_create_args_t timer_create_args = {
         .arg = g_global_state.global_main_queue,
@@ -543,8 +547,12 @@ void main_task(void* params)
     esp_timer_create(&timer_create_args, &timer_handle);
     esp_timer_create(&timer_create_args_oneshot, &timer_handle_oneshot);
     esp_timer_create(&timer_create_args_audio_menu, &timer_handle_audio_timeout);
-    esp_timer_start_periodic(timer_handle, 1000000);
+    esp_timer_start_periodic(timer_handle, 100000);
     esp_timer_start_once(timer_handle_oneshot, 1000000);
+
+    g_radio_state.radio_state_ignition = 1;
+
+    rd3_send_state_change();
 
     int adc_raw;
     int voltage_in;
@@ -585,33 +593,74 @@ void main_task(void* params)
                     // }
                     // printf("\n");
                 }
-
-                vTaskDelay(pdMS_TO_TICKS(10));
                 break;
-            
-            case MIVE_EVENT_TIMER_1S:
+
+            case MIVE_EVENT_TIMER_100MS:
                 {
-                    uint8_t temp_val = cdc_packet->header;
-                    temp_val = (temp_val >= 0x87) ? 0x80 : temp_val + 1;
-                    cdc_packet->header = temp_val;
-                    cdc_packet->footer = temp_val;
-                    tss_event.event = MIVE_EVENT_TSS_WRITE_FRAME;
-                    tss_event.ev_data.tss_event_data = tss_packet;
-                    xQueueSendToBack(tss_queue, &tss_event, pdMS_TO_TICKS(100));
+                    centis++;
+                    if(centis % 4 == 0)
+                    {
+
+                        // Send 0x5e4
+                        struct psa_van_5e4_struct* tss_5e4_data;
+                        mive_tss_task_packet_t* tss_5e4_packet = get_tss_task_buffer();
+                        
+                        tss_5e4_packet->iden = 0x5e4;
+                        tss_5e4_packet->message_type = TSS_TRANSMIT;
+                        tss_5e4_packet->packet_size = sizeof(*tss_5e4_data);
+                        tss_5e4_data = (struct psa_van_5e4_struct*)tss_5e4_packet->packet;
+                        memset(tss_5e4_data, 0, sizeof(*tss_5e4_data));
+                        
+                        if(g_global_car_state >= PSA_STATE_RADIO_ON)
+                        {
+                            tss_5e4_data->power_keep_alive = 1;
+                            tss_5e4_data->overspeed_alert_value = 0x1f;
+                        }
+                        else
+                        {
+                            tss_5e4_data->overspeed_alert_value = 0x01;
+                        }
+                        
+                        if(g_global_car_state >= PSA_STATE_IGNITION)
+                        {
+                            switch (trip_reset)
+                            {
+                            case PSA_TRIP_A:
+                            tss_5e4_data->reset_trip_a_request = 1;
+                            break;
+                            case PSA_TRIP_B:
+                            tss_5e4_data->reset_trip_b_request = 1;
+                            break;
+                            default:
+                            break;
+                            }
+                        }
+
+                        trip_reset = 0;
+                        
+                        tss_event.event = MIVE_EVENT_TSS_WRITE_FRAME;
+                        tss_event.ev_data.tss_event_data = tss_5e4_packet;
+                        xQueueSendToBack(tss_queue, &tss_event, pdMS_TO_TICKS(100));
+                    }
+                    if(centis % 10 == 0)
+                    {
+                        emf_send_reply_request(0x4d4, 11);
+                    }
+
                 }
                 break;
             case MIVE_EVENT_TIMER_1MS:
 
                 ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC_CHANNEL_5, &adc_raw));
                 ESP_ERROR_CHECK(adc_cali_raw_to_voltage(cali_handle, adc_raw, &voltage_in));
-                
+
                 g_bat_voltage = (voltage_in * 0.001f * (ADC_R1 + ADC_R2)) / ADC_R2;
                 // ESP_LOGI(TAG, "Voltage: %.3f", g_bat_voltage);
                 global_libpsa_buffers.status_data->voltage = (uint16_t)(g_bat_voltage * 1000);
                 libpsa_send_packet(PSA_IDENT_CAR_STATUS);
                 esp_timer_start_once(timer_handle_oneshot, 50000);
 
-                if (unlikely(g_bat_voltage < 1))
+                if (unlikely(g_bat_voltage < 2.0f))
                 {
                     struct mive_global_event sleep_event = {
                         .ev_data = {0},
@@ -631,33 +680,60 @@ void main_task(void* params)
                 {
                     audio_menu_open = 0;
                     audio_menu_setting = 0;
+
+                    g_radio_state.radio_menu_state = 0;
+                    // If CDC is selected, leave this as is
+                    g_radio_state.keyboard_override = (g_radio_state.radio_source == PSA_RADIO_EXTERNAL);
                     esp_timer_stop(timer_handle_audio_timeout);
+                    rd3_send_audio_settings();
+                    rd3_send_state_change();
                 }
                 else
                 {
                     audio_menu_open = 1;
                     audio_menu_setting++;
+
+                    g_radio_state.radio_menu_state = 1;
+                    g_radio_state.keyboard_override = 1; // Need this to register key presses
                     esp_timer_restart(timer_handle_audio_timeout, audio_menu_duration_ms * 1000);
+                    rd3_send_state_change();
                 }
                 ESP_LOGI(TAG, "[MIVE_EVENT_EMF_NEXT_AUDIO_MENU_ITEM] menu_open: %d, menu_setting: %d" , audio_menu_open, audio_menu_setting);
                 libpsa_update_audio_settings_packet(audio_menu_open, audio_menu_setting);
                 libpsa_send_packet(PSA_IDENT_HEADUNIT);
                 break;
-            case MIVE_EVENT_EMF_UPDATE_AUDIO_MENU:
+            case MIVE_EVENT_EMF_INCREMENT_AUDIO_SETTING:
                 if(audio_menu_open)
                 {
+                    emf_audio_setting_update(audio_menu_setting, 1);
                     esp_timer_restart(timer_handle_audio_timeout, audio_menu_duration_ms * 1000);
-                    ESP_LOGI(TAG, "[MIVE_EVENT_EMF_UPDATE_AUDIO_MENU] menu_open: %d, menu_setting: %d" , audio_menu_open, audio_menu_setting);
+                    ESP_LOGI(TAG, "[MIVE_EVENT_EMF_INCREMENT_AUDIO_SETTING] menu_open: %d, menu_setting: %d" , audio_menu_open, audio_menu_setting);
                     libpsa_update_audio_settings_packet(audio_menu_open, audio_menu_setting);
                     libpsa_send_packet(PSA_IDENT_HEADUNIT);
                 }
-                break;                
+                break;
+            case MIVE_EVENT_EMF_DECREMENT_AUDIO_SETTING:
+                if(audio_menu_open)
+                {
+                    emf_audio_setting_update(audio_menu_setting, -1);
+                    esp_timer_restart(timer_handle_audio_timeout, audio_menu_duration_ms * 1000);
+                    ESP_LOGI(TAG, "[MIVE_EVENT_EMF_DECREMENT_AUDIO_SETTING] menu_open: %d, menu_setting: %d" , audio_menu_open, audio_menu_setting);
+                    libpsa_update_audio_settings_packet(audio_menu_open, audio_menu_setting);
+                    libpsa_send_packet(PSA_IDENT_HEADUNIT);
+                }
+                break;
             case MIVE_EVENT_EMF_CLOSE_AUDIO_MENU:
                 audio_menu_open = 0;
                 audio_menu_setting = 0;
+                g_radio_state.radio_menu_state = 0;
+                // If CDC is selected, leave this as is
+                g_radio_state.keyboard_override = (g_radio_state.radio_source == PSA_RADIO_EXTERNAL);
+                    
                 ESP_LOGI(TAG, "[MIVE_EVENT_EMF_CLOSE_AUDIO_MENU] menu_open: %d, menu_setting: %d" , audio_menu_open, audio_menu_setting);
                 libpsa_update_audio_settings_packet(audio_menu_open, audio_menu_setting);
                 libpsa_send_packet(PSA_IDENT_HEADUNIT);
+                rd3_send_audio_settings();
+                rd3_send_state_change();
                 break;
             case MIVE_EVENT_VAN_NEW_DATA:
                 uart_queue_packet = event.ev_data.uart_update_data;
@@ -678,23 +754,8 @@ void main_task(void* params)
                 {
                     ESP_LOGI(TAG, "Sending Trip reset");
                     struct psa_trip_reset_data* data = (struct psa_trip_reset_data*)uart_recv_packet->data;
-                    tss_trip_event.event = MIVE_EVENT_TSS_WRITE_FRAME;
-                    tss_trip_event.ev_data.tss_event_data = tss_trip_packet;
-                    tss_trip_packet->packet_size = 2;
 
-                    switch (data->trip_meter)
-                    {
-                    case PSA_TRIP_A:
-                        tss_trip_packet->packet[0] = 0xA0;
-                        xQueueSendToBack(tss_queue, &tss_trip_event, 0);
-                        break;
-                    case PSA_TRIP_B:
-                        tss_trip_packet->packet[0] = 0x60;
-                        xQueueSendToBack(tss_queue, &tss_trip_event, 0);
-                        break;
-                    default:
-                        break;
-                    }
+                    trip_reset = data->trip_meter;
                 }
 
                 break;

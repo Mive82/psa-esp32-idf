@@ -32,7 +32,10 @@ struct psa_van_rd3_state_change_byte
 struct psa_van_rd3_command_update_state
 {
   uint8_t command_type; // 0x11
-  struct psa_van_rd3_state_change_byte data;
+  union {
+    struct psa_van_rd3_state_change_byte data;
+    uint8_t byte;
+  } data;
 } __attribute__((packed));
 
 struct psa_van_rd3_command_change_source

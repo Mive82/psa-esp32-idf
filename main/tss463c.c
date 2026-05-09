@@ -47,7 +47,7 @@ IRAM_ATTR static int is_channel_valid(tss_instance_t* instance, uint8_t channel,
     {
         return -MIVE_ERR_INVALID_ARGUMENT;
     }
-    
+
     // chan = &instance->channels[channel];
 
     // if((!chan->is_busy) && ((chan->is_occupied == 0) || (chan->is_occupied && chan->identifier == iden)))
@@ -63,7 +63,7 @@ static int tss_spi_master_init(tss_instance_t *instance)
 {
     spi_device_handle_t tss_handle;
 
-    #if (ESP32_BOARD_TYPE == DEVKIT)
+#if (ESP32_BOARD_TYPE == DEVKIT)
 
     spi_bus_config_t spi_config = {
         .mosi_io_num = 23,
@@ -78,7 +78,7 @@ static int tss_spi_master_init(tss_instance_t *instance)
         .data7_io_num = -1
     };
 
-    #else
+#else
 
     spi_bus_config_t spi_config = {
         .mosi_io_num = 13,
@@ -93,7 +93,7 @@ static int tss_spi_master_init(tss_instance_t *instance)
         .data7_io_num = -1
     };
 
-    #endif
+#endif
 
     spi_device_interface_config_t device_config = {
         .clock_speed_hz = 4000000,
@@ -116,9 +116,9 @@ static int tss_spi_master_init(tss_instance_t *instance)
 
 /**
  * @brief Performs an Asynchronous Reset and puts the TSS into motorolla mode
- * 
- * @param instance 
- * @return int 
+ *
+ * @param instance
+ * @return int
  */
 static int tss_motorolla_mode(tss_instance_t *instance)
 {
@@ -174,7 +174,7 @@ static int tss_motorolla_mode(tss_instance_t *instance)
 
 static int tss_disable_channel(tss_instance_t *instance, uint8_t channel_id)
 {
-    ESP_LOGI(TAG, "[%s] Disabling channel %d", __func__, channel_id);
+    ESP_LOGD(TAG, "[%s] Disabling channel %d", __func__, channel_id);
 
     int return_val = 0;
     if(channel_id > TSS_MAX_CHANNEL)
@@ -351,7 +351,7 @@ IRAM_ATTR int tss_registers_set(
     spi_device_transmit(instance->tss_handle, &transaction);
     if (transaction.rx_data[0] != 0xAA)
     {
-        printf("Error setting regiser: Invalid response 0x%02x / 0xAA\n", transaction.rx_data[0]);
+        //printf("Error setting regiser: Invalid response 0x%02x / 0xAA\n", transaction.rx_data[0]);
         return_val = 1;
         goto error;
     }
@@ -375,13 +375,13 @@ IRAM_ATTR int tss_registers_set(
     {
         transaction.tx_data[0] = values[i];
         spi_device_transmit(instance->tss_handle, &transaction);
-        printf("%02x ", transaction.tx_data[0]);
+        // printf("%02x ", transaction.tx_data[0]);
         usleep(3);
     }
 
-    printf("\n");
+    // printf("\n");
 
-    usleep(3);
+    usleep(2);
 
 error:
 
@@ -400,7 +400,7 @@ IRAM_ATTR int tss_register_get(
 {
     int return_val = 0;
     spi_transaction_t transaction = {0};
-    
+
     xSemaphoreTake(instance->tss_spi_semaphore, portMAX_DELAY);
     spi_device_acquire_bus(instance->tss_handle, portMAX_DELAY);
 
@@ -457,12 +457,12 @@ IRAM_ATTR int tss_registers_get(
 {
     int return_val = 0;
     spi_transaction_t transaction = {0};
-    
+
     if (unlikely(buffer == NULL))
     {
         return 1;
     }
-    
+
     if(unlikely(instance->chip_mode == TSS_MODE_SLEEP))
     {
         ESP_LOGE(TAG, "[%s] Chip in sleep mode", __func__);
@@ -583,6 +583,15 @@ int tss_free_channel(
     return MIVE_OK;
 }
 
+int tss_is_channel_free(
+    tss_instance_t* const instance,
+    uint8_t const channel_num)
+{
+    tss_channel_t* channel = &instance->channels[channel_num];
+
+    return !channel->is_busy;
+}
+
 int tss_create(tss_instance_t* instance)
 {
     if (unlikely(instance == NULL))
@@ -671,13 +680,6 @@ int tss_start(tss_instance_t *instance)
 
     tss_register_get(instance, TSS_INTERRUPTSTATUS, &(it_register.Value));
 
-    printf("\tRNOK: %d\n", it_register.data.RNOK);
-    printf("\tROK: %d\n", it_register.data.ROK);
-    printf("\tRE: %d\n", it_register.data.RE);
-    printf("\tTOK: %d\n", it_register.data.TOK);
-    printf("\tTE: %d\n", it_register.data.TE);
-    printf("\tRESET: %d\n", it_register.data.RESET);
-
     // Reset all interrupt statuses
     it_register.data.RESET = 1;
     it_register.data.TOK = 1;
@@ -700,11 +702,11 @@ int tss_start(tss_instance_t *instance)
 
     it_register.Value = 0;
     it_register.data.RESET = 1; // Must be 1
-    it_register.data.TOK = 1;   // Change this to enable interrupt on successful transmissions
+    it_register.data.TOK = 0;   // Change this to enable interrupt on successful transmissions
     it_register.data.ROK = 1;   // Change this to enable interrupt on reception with RAK
-    it_register.data.RNOK = 1;  // Change this to enable interrupt on reception without RAK
-    it_register.data.RE = 1;    // Change this to enable interrupt on reception error
-    it_register.data.TE = 1;    // Change this to enable interrupt on transmission error
+    it_register.data.RNOK = 0;  // Change this to enable interrupt on reception without RAK
+    it_register.data.RE = 0;    // Change this to enable interrupt on reception error
+    it_register.data.TE = 0;    // Change this to enable interrupt on transmission error
 
     if (tss_register_set(instance, TSS_INTERRUPTENABLE, it_register.Value))
     {
@@ -737,7 +739,7 @@ int tss_transmit_message(
     uint8_t channel_data[8] = {0};
     tss_channel_t* chan = NULL;
     int retval;
-    
+
     retval = is_channel_valid(instance, channel, iden);
 
     if(retval != MIVE_OK)
@@ -748,12 +750,13 @@ int tss_transmit_message(
     if(memory_offset & 0x80)
     {
         memory_address = memory_offset;
-    } 
+    }
     else
     {
         memory_address = TSS_GETMAIL(memory_offset);
     }
 
+    
     ESP_LOGD(TAG, "[%s] Using memory addr 0x%02x", __func__, memory_address);
 
     get_bytes_from_iden(iden, id1, id2);
@@ -766,7 +769,7 @@ int tss_transmit_message(
     id2_reg.data.RAK = rak;
 
     mp_reg.data.DRAK = 0;
-    mp_reg.data.message_pointer = memory_address & 0x7F;
+    mp_reg.data.message_pointer = memory_address - (uint8_t)0x80;
 
     mls_reg.data.CHTx = 0;
     mls_reg.data.M_L = data_size + 1;
@@ -774,14 +777,14 @@ int tss_transmit_message(
     // When writing to the bus, the first element in the buffer is ignored,
     // so we skip one (memory_address + 1)
     tss_registers_set(instance, memory_address + 1, data, data_size);
-    
+
     channel_data[0] = id1;
     channel_data[1] = id2_reg.Value;
     channel_data[2] = mp_reg.Value;
     channel_data[3] = mls_reg.Value;
-    channel_data[6] = id1;
-    channel_data[7] = id2;
-    
+    channel_data[6] = 0xff;
+    channel_data[7] = 0xf0;
+
     tss_registers_set(instance, TSS_CHANNEL_ADDR(channel), channel_data, 8);
 
     chan = &instance->channels[channel];
@@ -814,7 +817,7 @@ int tss_immediate_reply_message(
     uint8_t channel_data[8] = {0};
     tss_channel_t* chan = NULL;
     int retval;
-    
+
     retval = is_channel_valid(instance, channel, iden);
 
     if(retval != MIVE_OK)
@@ -826,7 +829,7 @@ int tss_immediate_reply_message(
     if(memory_offset & 0x80)
     {
         memory_address = memory_offset;
-    } 
+    }
     else
     {
         memory_address = TSS_GETMAIL(memory_offset);
@@ -853,14 +856,14 @@ int tss_immediate_reply_message(
     // When writing to the bus, the first element in the buffer is ignored,
     // so we skip one (memory_address + 1)
     tss_registers_set(instance, memory_address + 1, data, data_size);
-    
+
     channel_data[0] = id1;
     channel_data[1] = id2_reg.Value;
     channel_data[2] = mp_reg.Value;
     channel_data[3] = mls_reg.Value;
-    channel_data[6] = id1;
-    channel_data[7] = id2;
-    
+    channel_data[6] = 0xff;
+    channel_data[7] = 0xff << 4;
+
     tss_registers_set(instance, TSS_CHANNEL_ADDR(channel), channel_data, 8);
 
     chan = &instance->channels[channel];
@@ -872,6 +875,136 @@ int tss_immediate_reply_message(
     chan->message_len_and_status_reg_value = mls_reg.Value;
     chan->tx_attempt = 1;
     chan->message_type = TSS_IMM_REPLY;
+
+    return MIVE_OK;
+}
+
+int tss_receive_message(
+    tss_instance_t* const instance,
+    uint8_t channel,
+    uint16_t const iden,
+    uint8_t const size,
+    uint8_t const memory_offset)
+{
+    uint8_t id1 = 0;
+    uint8_t id2 = 0;
+    uint8_t memory_address = 0;
+    id2_and_command_register_t id2_reg = {0};
+    message_pointer_register_t mp_reg = {0};
+    message_length_and_status_register_t mls_reg = {0};
+    uint8_t channel_data[8] = {0};
+    tss_channel_t* chan = NULL;
+    int retval = MIVE_OK;
+
+    if(memory_offset & 0x80)
+    {
+        memory_address = memory_offset;
+    }
+    else
+    {
+        memory_address = TSS_GETMAIL(memory_offset);
+    }
+
+    ESP_LOGD(TAG, "[%s] Using memory addr 0x%02x", __func__, memory_address);
+
+    get_bytes_from_iden(iden, id1, id2);
+
+    id2_reg.data.ID = id2;
+    id2_reg.data.RNW = 0;
+    id2_reg.data.RTR = 1;
+    id2_reg.data.EXT = 1;
+    id2_reg.data.RAK = 0;
+
+    mp_reg.data.DRAK = 0;
+    mp_reg.data.message_pointer = memory_address & 0x7F;
+
+    mls_reg.data.CHTx = 0;
+    mls_reg.data.M_L = size + 1; // Don't care about the DATA. Only that the ACK is sent.
+
+    channel_data[0] = id1;
+    channel_data[1] = id2_reg.Value;
+    channel_data[2] = mp_reg.Value;
+    channel_data[3] = mls_reg.Value;
+    channel_data[6] = 0xff;
+    channel_data[7] = 0xff << 4;
+
+    tss_registers_set(instance, TSS_CHANNEL_ADDR(channel), channel_data, 8);
+
+    chan = &instance->channels[channel];
+    chan->data_size = 1;
+    chan->ram_address = memory_address;
+    chan->identifier = iden;
+    chan->is_occupied = true;
+    chan->is_busy = true;
+    chan->message_len_and_status_reg_value = mls_reg.Value;
+    chan->tx_attempt = 1;
+    chan->message_type = TSS_RECEIVE;
+
+    return MIVE_OK;
+}
+
+int tss_reply_request_message(
+    tss_instance_t* const instance,
+    uint8_t channel,
+    uint16_t const iden,
+    uint8_t const memory_offset,
+    uint8_t const data_size,
+    uint8_t const rak)
+{
+    uint8_t id1 = 0;
+    uint8_t id2 = 0;
+    uint8_t memory_address = 0;
+    id2_and_command_register_t id2_reg = {0};
+    message_pointer_register_t mp_reg = {0};
+    message_length_and_status_register_t mls_reg = {0};
+    uint8_t channel_data[8] = {0};
+    tss_channel_t* chan = NULL;
+    int retval = MIVE_OK;
+
+    if(memory_offset & 0x80)
+    {
+        memory_address = memory_offset;
+    }
+    else
+    {
+        memory_address = TSS_GETMAIL(memory_offset);
+    }
+
+    ESP_LOGD(TAG, "[%s] Using memory addr 0x%02x", __func__, memory_address);
+
+    get_bytes_from_iden(iden, id1, id2);
+
+    id2_reg.data.ID = id2;
+    id2_reg.data.RNW = 1;
+    id2_reg.data.RTR = 1;
+    id2_reg.data.EXT = 1;
+    id2_reg.data.RAK = 1;
+
+    mp_reg.data.DRAK = 0;
+    mp_reg.data.message_pointer = memory_address & 0x7F;
+
+    mls_reg.data.CHTx = 0;
+    mls_reg.data.CHRx = 0;
+    mls_reg.data.M_L = data_size + 1; // Don't care about the DATA. Only that the ACK is sent.
+
+    channel_data[0] = id1;
+    channel_data[1] = id2_reg.Value;
+    channel_data[2] = mp_reg.Value;
+    channel_data[3] = mls_reg.Value;
+    channel_data[6] = 0xff;
+    channel_data[7] = 0xff << 4;
+
+    tss_registers_set(instance, TSS_CHANNEL_ADDR(channel), channel_data, 8);
+
+    chan = &instance->channels[channel];
+    chan->data_size = 1;
+    chan->ram_address = memory_address;
+    chan->identifier = iden;
+    chan->is_occupied = true;
+    chan->is_busy = true;
+    chan->message_len_and_status_reg_value = mls_reg.Value;
+    chan->tx_attempt = 1;
+    chan->message_type = TSS_REPLY_REQUEST;
 
     return MIVE_OK;
 }

@@ -240,24 +240,24 @@ void van_rmt_rx_channel_init_new(
 
     rx_chan_config.gpio_num = rxPin;
     rx_chan_config.clk_src = RMT_CLK_SRC_DEFAULT;
-    rx_chan_config.resolution_hz = 1000000; // 1 MHz
+    rx_chan_config.resolution_hz = 2000000; // 1 MHz
     rx_chan_config.mem_block_symbols = 512;
     // RMT DMA not supported on ESP32
     rx_chan_config.flags.with_dma = 0;
 
     if (vanNetworkType == RX_VAN_NETWORK_COMFORT)
     {
-        _rmt_van_rx_time_slice_divisor = 8;
+        _rmt_van_rx_time_slice_divisor = 16;
         timeslot_interval_ns = 8 * 1000;
     }
     else
     {
-        _rmt_van_rx_time_slice_divisor = 16;
+        _rmt_van_rx_time_slice_divisor = 32;
         timeslot_interval_ns = 16 * 1000;
     }
 
-    rx_recv_config.signal_range_max_ns = 10 * timeslot_interval_ns;
-    rx_recv_config.signal_range_min_ns = timeslot_interval_ns / _rmt_van_rx_time_slice_divisor;
+    rx_recv_config.signal_range_max_ns = 8 * timeslot_interval_ns;
+    rx_recv_config.signal_range_min_ns = timeslot_interval_ns / 4;
 
     rmt_new_rx_channel(&rx_chan_config, &rx_chan);
 

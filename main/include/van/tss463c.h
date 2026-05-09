@@ -33,6 +33,7 @@ enum tss_message_type {
     TSS_REPLY_REQUEST,
     TSS_IMM_REPLY,
     TSS_DEF_REPLY,
+    TSS_RECEIVE,
 };
 
 enum tss_chip_mode {
@@ -149,6 +150,10 @@ int tss_free_channel(
     tss_instance_t* const instance,
     uint8_t const channel_num);
 
+int tss_is_channel_free(
+    tss_instance_t* const instance,
+    uint8_t const channel_num);
+
 int tss_retransmit_channel(
     tss_instance_t* const instance,
     uint8_t const channel_num);
@@ -173,12 +178,24 @@ int tss_transmit_message(
     uint8_t const memory_offset,
     uint8_t const rak);
 
+/**
+ * Receive dummy data in a dummy buffer.
+ * Only used to send an ACK for a Write packet.
+ */
+int tss_receive_message(
+    tss_instance_t* const instance,
+    uint8_t channel,
+    uint16_t const iden,
+    uint8_t const size,
+    uint8_t const memory_offset);
+
 int tss_reply_request_message(
     tss_instance_t* const instance,
     uint8_t channel,
     uint16_t const iden,
+    uint8_t const memory_offset,
     uint8_t const data_size,
-    uint8_t const memory_offset);
+    uint8_t const rak);
 
 int tss_immediate_reply_message(
     tss_instance_t* const instance,
