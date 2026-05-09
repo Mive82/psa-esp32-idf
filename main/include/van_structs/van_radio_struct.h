@@ -41,7 +41,8 @@ struct psa_van_radio_freq_info
     uint8_t header;                                           // 0
     uint8_t data_type;                                        // Should be 0xD1 for frequency info // 1
     uint8_t band : 3;                                         // 2
-    uint8_t memory_position : 5;                              // 2
+    uint8_t memory_position : 4;                              // 2
+    uint8_t memory_position_being_updated : 1;                // When the station is being saved to a preset // 2 
     struct psa_van_radio_freq_info_scan_info scan_info;       // 3
     uint8_t frequency[2];                                     // 4,5
     uint8_t signal_info;                                      // 6 AND with 0x0F to get signal strength, not sure if accurate
