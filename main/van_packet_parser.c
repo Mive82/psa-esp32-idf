@@ -25,12 +25,13 @@ static int audio_menu_setting = 0; // 0, 1, 2, 3, 4, 5, 6
 // static const int audio_menu_duration_ms = 4000;
 
 static const uint16_t iden_filter[] = {
-    0x554,
-    0x4d4,
-    0x8c4,
-    0x8d4,
-    0x5e4,
-    0x564,
+    0x554, // Radio info
+    0x4d4, // Radio state
+    0x8c4, // Events
+    0x8d4, // Radio commands
+    0x5e4, // Display status
+    0x564, // BSI display contents
+    0x9c4, // Radio stalk
 };
 
 mive_uart_queue_packet_t packet_buffers[PACKET_BUFFER_NUM];
@@ -98,27 +99,39 @@ static int psa_parse_radio_event(
 {
     struct mive_global_event event = {0};
 
-    struct VanEventRadioStructs const* radio_event = (struct VanEventRadioStructs const*)data;
+    mive_uart_queue_packet_t* queue_packet = NULL;
+    mive_uart_queue_packet_t queue_packet_c = {
+        .idens = {PSA_IDENT_CAR_STATUS},
+        .num_idens = 1,
+    };
 
-    // Check if we have a pending 554 request to send
-    // This happens when we switch the 554 output type
-    if (g_radio_state.radio_554_state)
+    if (data_buffers->status_data == NULL)
     {
-        emf_send_reply_request(0x554, 22);
-        g_radio_state.radio_554_state = 0;
+        return -MIVE_ERR_INVALID_ARGUMENT;
     }
+
+    queue_packet = get_uart_packet_buffer();
+
+    *queue_packet = queue_packet_c;
+
+    struct mive_global_event van_event = {
+        .event = 0,
+        .ev_data.uart_update_data = queue_packet,
+    };
+
+    struct psa_status_data *status_data = (struct psa_status_data *)data_buffers->status_data;
+    struct VanEventRadioStructs const* radio_event = (struct VanEventRadioStructs const*)data;
 
     if(radio_event->Event.event_general)
     {
         // This usually means new data in `0x4d4`
         // Send a reply request message
-        ESP_LOGI(TAG, "General event");
+        // ESP_LOGI(TAG, "General event");
         emf_send_reply_request(0x4d4, 11);
     }
-
-    if(radio_event->Event.event_radio)
+    else if(radio_event->Event.event_radio)
     {
-        ESP_LOGI(TAG, "Radio event");
+        // ESP_LOGI(TAG, "Radio event");
 
         // Check if the buffer is radio
         if(radio_event->Event.buffer_part != VAN_EVENT_RADIO_BUF_TUNER)
@@ -128,19 +141,14 @@ static int psa_parse_radio_event(
             rd3_send_command_packet(&cmd, 1);
             // Radio will respond with another event after this,
             // but the event bit will not be set.
-            // Remember to send 0x554 again
-            g_radio_state.radio_554_state = 1;
-
         }
         else{
-            emf_send_reply_request(0x554, 22);
-            g_radio_state.radio_554_state = 0;
+            emf_send_reply_request(0x554, 25);
         }
     }
-
-    if(radio_event->Event.event_cd)
+    else if(radio_event->Event.event_cd)
     {
-        ESP_LOGI(TAG, "CD event");
+        // ESP_LOGI(TAG, "CD event");
 
         // Check if the buffer is CD
         if(radio_event->Event.buffer_part != VAN_EVENT_RADIO_BUF_CD_STATE)
@@ -148,60 +156,130 @@ static int psa_parse_radio_event(
             uint8_t cmd = 0xd6;
             // Send 8d4 request to switch 0x554 to CD
             rd3_send_command_packet(&cmd, 1);
-
-            g_radio_state.radio_554_state = 1;
-
         }
         else{
-            emf_send_reply_request(0x554, 22);
-            g_radio_state.radio_554_state = 0;
+            emf_send_reply_request(0x554, 25);
         }
     }
-
-    if(radio_event->Event.event_keyboard)
+    else if(radio_event->Event.event_keyboard)
     {
-        ESP_LOGI(TAG, "Keyboard event");
+        // ESP_LOGI(TAG, "Keyboard event");
+        uint8_t button = radio_event->Button.radio_button;
 
-        if(radio_event->Button.push_type == VAN_EVENT_RADIO_BUTTON_PUSH_TYPE_RELEASE)
+
+        if(radio_event->Button.push_type == VAN_EVENT_RADIO_BUTTON_PUSH_TYPE_PUSH)
         {
-            switch (radio_event->Button.radio_button)
+            if(g_radio_state.radio_buttons[button] != 1)
             {
-            case VAN_EVENT_RADIO_BUTTON_UP_AUDIO_PLUS:
-                event.event = MIVE_EVENT_EMF_INCREMENT_AUDIO_SETTING;
-                break;
-            case VAN_EVENT_RADIO_BUTTON_DOWN_AUDIO_MINUS:
-                event.event = MIVE_EVENT_EMF_DECREMENT_AUDIO_SETTING;
-                break;
-            case VAN_EVENT_RADIO_BUTTON_AUDIO:
-                event.event = MIVE_EVENT_EMF_NEXT_AUDIO_MENU_ITEM;
-                break;
-            case VAN_EVENT_RADIO_BUTTON_TUNER:
-                rd3_switch_source(PSA_RADIO_TUNER);
-                break;
-            case VAN_EVENT_RADIO_BUTTON_CDC:
-                rd3_switch_source(PSA_RADIO_EXTERNAL);
-                break;
-            case VAN_EVENT_RADIO_BUTTON_CD_MD:
+                // Handle event
+                g_radio_state.radio_buttons[button] = 1;
+                switch (button)
                 {
-                    if(g_radio_state.radio_cd_present)
+                case VAN_EVENT_RADIO_BUTTON_UP_AUDIO_PLUS:
+                    if(g_radio_state.radio_state_current)
                     {
-                        rd3_switch_source(PSA_RADIO_INTERNAL);
+                        event.event = MIVE_EVENT_EMF_INCREMENT_AUDIO_SETTING;
                     }
-                    else{
-                        ESP_LOGI(TAG, "No cd present");
+                    break;
+                case VAN_EVENT_RADIO_BUTTON_DOWN_AUDIO_MINUS:
+                    if(g_radio_state.radio_state_current)
+                    {
+                        event.event = MIVE_EVENT_EMF_DECREMENT_AUDIO_SETTING;
                     }
+                    break;
+                case VAN_EVENT_RADIO_BUTTON_LEFT_SEARCH_MINUS:
+                    if(g_radio_state.radio_source == RD3_SOURCE_CDC)
+                    {
+                        van_event.event = MIVE_EVENT_VAN_NEW_DATA;
+                        status_data->cd_changer_command = PSA_CD_CHANGER_COMM_PREV_TRACK;
+                    }
+                    break;
+                case VAN_EVENT_RADIO_BUTTON_RIGHT_SEARCH_PLUS:
+                    if(g_radio_state.radio_source == RD3_SOURCE_CDC)
+                    {
+                        van_event.event = MIVE_EVENT_VAN_NEW_DATA;
+                        status_data->cd_changer_command = PSA_CD_CHANGER_COMM_NEXT_TRACK;
+                    }
+                    break;
+                default:
+                    break;
                 }
-                break;
-            default:
-                break;
             }
         }
+        else if(radio_event->Button.push_type == VAN_EVENT_RADIO_BUTTON_PUSH_TYPE_RELEASE)
+        {
+            // Handle duplicate events
+            if(g_radio_state.radio_buttons[button] != 0)
+            {
+                switch (button)
+                {
+                case VAN_EVENT_RADIO_BUTTON_AUDIO:
+                    if(g_radio_state.radio_state_current)
+                    {
+                        event.event = MIVE_EVENT_EMF_NEXT_AUDIO_MENU_ITEM;
+                    }
+                    break;
+                case VAN_EVENT_RADIO_BUTTON_TUNER:
+                    rd3_switch_source(PSA_RADIO_TUNER);
+                    break;
+                case VAN_EVENT_RADIO_BUTTON_CDC:
+                    rd3_switch_source(PSA_RADIO_EXTERNAL);
+                    break;
+                // case VAN_EVENT_RADIO_BUTTON_MANUAL_AUTO:
+                //     {
+                //         uint8_t cmd = 0xd3;
+                //         // Send 8d4 request to switch 0x554 to Presets
+                //         rd3_send_command_packet(&cmd, 1);
 
+                //         g_radio_state.radio_554_state = 1;
+                //     }
+                //     break;
+                // case VAN_EVENT_RADIO_BUTTON_MEMO1:
+                //     {
+                //         struct psa_van_rd3_command_set_preset cmd = {
+                //             .command_type = 0x21,
+                //             .data.band = PSA_VAN_BAND_FMAST,
+                //             .data.memory_position = 6
+                //         };
+
+                //         rd3_send_command_packet((uint8_t*)&cmd, 2);
+                //     }
+                //     break;
+                case VAN_EVENT_RADIO_BUTTON_CD_MD:
+                    {
+                        if(g_radio_state.radio_cd_present)
+                        {
+                            rd3_switch_source(RD3_SOURCE_CD_TAPE);
+                        }
+                        else{
+                            ESP_LOGI(TAG, "No cd present");
+                        }
+                    }
+                    break;
+                default:
+                    break;
+                }
+                g_radio_state.radio_buttons[button] = 0;
+            }
+        }
+    }
+    else if (radio_event->Event.event_tape)
+    {
+        // LMAO
+    }
+    else{
+        // No events, buffer state probably changed. Just send a 0x554
+        emf_send_reply_request(0x554, 25);
     }
 
     if(event.event)
     {
         xQueueSendToBack(g_global_state.global_main_queue, &event, 0);
+    }
+
+    if(van_event.event)
+    {
+        xQueueSendToBack(g_global_state.global_main_queue, &van_event, 0);
     }
 
     return MIVE_OK;
@@ -211,7 +289,7 @@ static int psa_parse_bsi_event(
     uint8_t const *const data,
     struct psa_output_data_buffers *data_buffers)
 {
-    emf_send_reply_request(0x564, 27);
+    emf_send_reply_request(0x564, 29);
 
     return MIVE_OK;
 }
@@ -225,11 +303,11 @@ static int psa_parse_events_iden(
     switch (event_id->event_src)
     {
     case VAN_EVENT_SRC_BSI:
-        ESP_LOGI(TAG, "Source BSI");
+        // ESP_LOGI(TAG, "Source BSI");
         return psa_parse_bsi_event(data, data_buffers);
         break;
     case VAN_EVENT_SRC_RADIO:
-        ESP_LOGI(TAG, "Source Radio");
+        // ESP_LOGI(TAG, "Source Radio");
         return psa_parse_radio_event(data, data_buffers);
         break;
     default:
@@ -644,40 +722,75 @@ static int psa_parse_radio_preset_iden(
     uint8_t const *const data,
     struct psa_output_data_buffers *data_buffers)
 {
-    // if (data_buffers == NULL)
-    // {
-    //     return -MIVE_ERR_INVALID_ARGUMENT;
-    // }
+    mive_uart_queue_packet_t* queue_packet = NULL;
 
-    // if (data_buffers->presets_data == NULL)
-    // {
-    //     return -MIVE_ERR_INVALID_ARGUMENT;
-    // }
+    mive_uart_queue_packet_t queue_packet_c = {
+        .idens = {PSA_IDENT_RADIO_PRESETS},
+        .num_idens = 1,
+    };
 
-    // if (data[1] != 0xD3) // D3 is preset info
-    // {
-    //     return -MIVE_ERR_VAN_UNKNOWN_IDEN;
-    // }
+    if (data_buffers == NULL)
+    {
+        return -MIVE_ERR_INVALID_ARGUMENT;
+    }
 
-    // struct psa_van_radio_preset_info *van_data = (struct psa_van_radio_preset_info *)data;
+    if (data[1] != 0xD3) // D3 is preset info
+    {
+        return -MIVE_ERR_VAN_UNKNOWN_IDEN;
+    }
 
-    // struct psa_preset_data *preset_data = (struct psa_preset_data *)data_buffers->presets_data;
+    queue_packet = get_uart_packet_buffer();
 
-    // if (van_data->position > 0 && van_data->position < 7)
-    // {
-    //     memset(preset_data->presets[van_data->position].preset_name, 0, 10);
-    //     strncpy(preset_data->presets[van_data->position].preset_name, (const char *)van_data->station_name, 8);
+    *queue_packet = queue_packet_c;
 
-    //     preset_data->presets[van_data->position].preset_num = van_data->position;
-    // }
-    // else
-    // {
-    //     return PSA_INVALID_VAN_PACKET;
-    // }
+    struct mive_global_event queue_event = {
+        .event = MIVE_EVENT_VAN_NEW_DATA,
+        .ev_data.uart_update_data = queue_packet,
+    };
+
+    struct psa_van_radio_preset_info *van_data = (struct psa_van_radio_preset_info *)data;
+
+    struct psa_preset_data *preset_data = NULL;
+
+    switch (van_data->band)
+    {
+    case PSA_VAN_BAND_FM1:
+        preset_data = (struct psa_preset_data *)data_buffers->presets_data_fm_1;
+        break;
+    case PSA_VAN_BAND_FM2:
+        preset_data = (struct psa_preset_data *)data_buffers->presets_data_fm_2;
+        break;
+    case PSA_VAN_BAND_FMAST:
+        preset_data = (struct psa_preset_data *)data_buffers->presets_data_fm_ast;
+        break;
+    case PSA_VAN_BAND_AM:
+        preset_data = (struct psa_preset_data *)data_buffers->presets_data_am;
+        break;
+    case PSA_VAN_BAND_NONE:
+    case PSA_VAN_BAND_FM3:
+    case PSA_VAN_BAND_PTY_SELECT:
+    default:
+        break;
+    }
+
+    if (van_data->position > 0 && van_data->position < 7 && preset_data != NULL)
+    {
+        memset(preset_data->presets[van_data->position - 1].preset_name, 0, 10);
+        memcpy(preset_data->presets[van_data->position - 1].preset_name, van_data->station_name, 8);
+
+        preset_data->presets[van_data->position - 1].preset_num = van_data->position;
+    }
+    else
+    {
+        return -MIVE_ERR;
+    }
+
+    xQueueSendToBack(g_global_state.global_main_queue, &queue_event, 0);
 
     return MIVE_OK;
 }
 
+// 0x4d4
 static int psa_parse_headunit_iden(
     uint8_t const *const data,
     struct psa_output_data_buffers *data_buffers)
@@ -743,6 +856,17 @@ static int psa_parse_headunit_iden(
 
     xQueueSendToBack(g_global_state.global_main_queue, &queue_event, 0);
 
+    if(van_data->power.power_on && van_data->source.source != g_radio_state.radio_source_target)
+    {
+        // Requested and current inputs don't match. Request switch
+        struct psa_van_rd3_command_change_source cmd = {
+            .command_type = 0x12,
+            .source = g_radio_state.radio_source_target,
+        };
+        rd3_send_command_packet((uint8_t*)&cmd, 2);
+        emf_send_reply_request(0x554, 25);
+    }
+
     // Store internal state
 
     g_radio_state.radio_setting_auto_vol = van_data->audio_properties.auto_volume;
@@ -762,12 +886,14 @@ static int psa_parse_headunit_iden(
     {
         // Head unit wants to power on
         // Refuse if we are in economy mode
+        g_radio_state.radio_state_user = 1;
         g_radio_state.radio_state_target = 1;
         rd3_send_state_change();
     }
 
     if(van_data->power.request_power_off)
     {
+        g_radio_state.radio_state_user = 0;
         g_radio_state.radio_state_target = 0;
         rd3_send_state_change();
     }
@@ -1012,6 +1138,125 @@ static int psa_parse_cdc_command(
     return MIVE_OK;
 }
 
+static int psa_parse_remote_stalk(
+    uint8_t const *const data,
+    struct psa_output_data_buffers *data_buffers)
+{
+    int16_t wheel_diff = 0;
+    mive_uart_queue_packet_t* queue_packet = NULL;
+    mive_uart_queue_packet_t queue_packet_c = {
+        .idens = {PSA_IDENT_CAR_STATUS},
+        .num_idens = 1,
+    };
+
+    if (data_buffers->status_data == NULL)
+    {
+        return -MIVE_ERR_INVALID_ARGUMENT;
+    }
+
+    queue_packet = get_uart_packet_buffer();
+
+    *queue_packet = queue_packet_c;
+
+    struct mive_global_event queue_event = {
+        .event = MIVE_EVENT_VAN_NEW_DATA,
+        .ev_data.uart_update_data = queue_packet,
+    };
+
+    struct psa_status_data *status_data = (struct psa_status_data *)data_buffers->status_data;
+    struct van_radio_remote_struct *van_data = (struct van_radio_remote_struct *)data;
+
+    // TODO:
+    // - handle button logic as well as potential debounce
+    // - buttons can be held down, see how that looks on the bus
+    // - figure out fm seeking
+
+    if(van_data->button_status.data.volume_minus != g_radio_state.stalk_buttons.volume_minus)
+    {
+        if(van_data->button_status.data.volume_minus)
+            rd3_send_volume_relative(-1);
+    }
+
+    if(van_data->button_status.data.volume_plus != g_radio_state.stalk_buttons.volume_plus)
+    {
+        if(van_data->button_status.data.volume_plus)
+            rd3_send_volume_relative(1);
+    }
+
+    if(van_data->button_status.data.seek_up != g_radio_state.stalk_buttons.seek_fwd)
+    {
+        if(!van_data->button_status.data.seek_up)
+        {
+            switch (g_radio_state.radio_source)
+            {
+            case RD3_SOURCE_CDC:
+                status_data->cd_changer_command = PSA_CD_CHANGER_COMM_NEXT_TRACK;
+                break;
+            case RD3_SOURCE_TUNER:
+                rd3_send_seek_command(RD3_SEEK_FORWARD);
+                break;
+            default:
+                break;
+            }
+        }
+    }
+
+    if(van_data->button_status.data.seek_down != g_radio_state.stalk_buttons.seek_bwd)
+    {
+        // Originally it is sent when the button is released
+        if(!van_data->button_status.data.seek_down)
+        {
+            switch (g_radio_state.radio_source)
+            {
+            case RD3_SOURCE_CDC:
+                status_data->cd_changer_command = PSA_CD_CHANGER_COMM_PREV_TRACK;
+                break;
+            case RD3_SOURCE_TUNER:
+                rd3_send_seek_command(RD3_SEEK_BACKWARD);
+                break;
+            default:
+                break;
+            }
+        }
+    }
+
+    if(van_data->button_status.data.source != g_radio_state.stalk_buttons.source)
+    {
+        if(van_data->button_status.data.source)
+        {
+            g_radio_state.radio_mute = !g_radio_state.radio_mute;
+            rd3_send_state_change();
+            switch (g_radio_state.radio_source)
+            {
+            case RD3_SOURCE_CDC:
+                if(g_radio_state.radio_mute)
+                {
+                    status_data->cd_changer_command = PSA_CD_CHANGER_COMM_PAUSE;
+                }
+                else{
+                    status_data->cd_changer_command = PSA_CD_CHANGER_COMM_PLAY;
+                }
+                break;
+
+            default:
+                break;
+            }
+        }
+    }
+
+    g_radio_state.stalk_buttons.volume_minus = van_data->button_status.data.volume_minus;
+    g_radio_state.stalk_buttons.volume_plus = van_data->button_status.data.volume_plus;
+    g_radio_state.stalk_buttons.seek_bwd = van_data->button_status.data.seek_down;
+    g_radio_state.stalk_buttons.seek_fwd = van_data->button_status.data.seek_up;
+    g_radio_state.stalk_buttons.source = van_data->button_status.data.source;
+
+    g_radio_state.stalk_wheel = van_data->scroll_position;
+
+    xQueueSendToBack(g_global_state.global_main_queue, &queue_event, 0);
+
+    return MIVE_OK;
+}
+
 int psa_parse_van_packet(
     uint16_t iden,
     uint8_t size,
@@ -1125,6 +1370,7 @@ int psa_parse_van_packet(
         {
             return -MIVE_ERR_VAN_INVALID_PACKET_SIZE;
         }
+        break;
 
     case PSA_VAN_IDEN_CDCHANGER_COMMAND:
         if (size == 2)
@@ -1135,17 +1381,15 @@ int psa_parse_van_packet(
         {
             return -MIVE_ERR_VAN_INVALID_PACKET_SIZE;
         }
+        break;
 
     case PSA_VAN_IDEN_DEVICE_REPORT:
-        emf_receive(PSA_VAN_IDEN_DEVICE_REPORT, 3);
-        if ((size == 3) || (size == 2))
-        {
-            return psa_parse_events_iden(data, (struct psa_output_data_buffers *)data_buffers);
-        }
-        else
-        {
-            return -MIVE_ERR_VAN_INVALID_PACKET_SIZE;
-        }
+        return psa_parse_events_iden(data, (struct psa_output_data_buffers *)data_buffers);
+        break;
+
+    case PSA_VAN_IDEN_HEAD_UNIT_STALK:
+        return psa_parse_remote_stalk(data, (struct psa_output_data_buffers *)data_buffers);
+        break;
 
     default:
         return -MIVE_ERR_VAN_UNKNOWN_IDEN;

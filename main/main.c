@@ -272,10 +272,15 @@ void ulp_adc_wake_up(unsigned int high_adc_treshold)
 void go_to_sleep(void)
 {
     tss_sleep(&global_tss_instance);
-    gpio_set_level(32, 0);
-    gpio_set_level(27, 0);
+    gpio_set_level(TSS_OE_ENABLE_PIN, 0);
+    gpio_set_level(PSA_EXT_REG_PIN, 0);
+    gpio_set_level(TJA_ENABLE_PIN, 1);
+    gpio_hold_en(PSA_EXT_REG_PIN);
+    gpio_hold_en(TSS_OE_ENABLE_PIN);
+    gpio_hold_en(TJA_ENABLE_PIN);
     rtc_gpio_isolate(GPIO_NUM_12);
     rtc_gpio_isolate(GPIO_NUM_15);
+    gpio_deep_sleep_hold_en();
     printf("Going to sleep\n");
     ulp_adc_wake_up(1000);
     esp_deep_sleep_start();
@@ -305,7 +310,7 @@ void update_car_state(int new_state)
 
     if(new_state >= PSA_STATE_ACCESSORY && g_global_car_state < PSA_STATE_RADIO_ON)
     {
-        g_radio_state.radio_state_target = 1;
+        g_radio_state.radio_state_target = g_radio_state.radio_state_user;
         rd3_send_state_change();
     }
 
@@ -415,6 +420,30 @@ void app_main(void)
         memcpy(global_libpsa_buffers.presets_data_fm_ast, &rtc_preset_data[PSA_PRESET_FMAST], sizeof(struct psa_preset_data));
     }
 
+#if (ESP32_BOARD_TYPE != DEVKIT)
+    esp_rom_gpio_pad_select_gpio(PSA_EXT_REG_PIN);
+    esp_rom_gpio_pad_select_gpio(TSS_OE_ENABLE_PIN);
+    esp_rom_gpio_pad_select_gpio(TJA_ENABLE_PIN);
+
+    gpio_deep_sleep_hold_dis();
+
+    gpio_set_direction(PSA_EXT_REG_PIN, GPIO_MODE_OUTPUT);
+    gpio_set_direction(TSS_OE_ENABLE_PIN, GPIO_MODE_OUTPUT);
+    gpio_set_direction(TJA_ENABLE_PIN, GPIO_MODE_OUTPUT);
+
+    gpio_set_level(PSA_EXT_REG_PIN, 0);
+    gpio_set_level(TSS_OE_ENABLE_PIN, 1);
+    gpio_set_level(TJA_ENABLE_PIN, 0);
+
+    gpio_hold_dis(PSA_EXT_REG_PIN);
+    gpio_hold_dis(TSS_OE_ENABLE_PIN);
+    gpio_hold_dis(TJA_ENABLE_PIN);
+
+    vTaskDelay(pdMS_TO_TICKS(10));
+    gpio_set_level(PSA_EXT_REG_PIN, 1);
+
+#endif
+
     ret = gpio_install_isr_service(ESP_INTR_FLAG_IRAM);
     if(ret != ESP_OK)
     {
@@ -422,28 +451,22 @@ void app_main(void)
     }
 
     xTaskCreatePinnedToCore(
-        main_task,
-        "main_task",
-        10240,
-        NULL, 20, NULL, 0);
-
-    xTaskCreatePinnedToCore(
-        tss_task,
-        "tss_task",
-        5120,
-        &g_global_state, 10, NULL, 0);
-
-    xTaskCreatePinnedToCore(
         van_rmt_task,
         "van_rx_task",
         5120,
-        &g_global_state, 15, NULL, 1);
+        &g_global_state, 8, NULL, 1);
 
     xTaskCreatePinnedToCore(
         uart_task,
         "uart_task",
         5120,
-        &g_global_state, 15, NULL, 0);
+        &g_global_state, 15, NULL, 1);
+
+    xTaskCreatePinnedToCore(
+        main_task,
+        "main_task",
+        10240,
+        NULL, 10, NULL, 0);
 
     // xTaskCreatePinnedToCore(stats_task, "stats", 4096, NULL, 3, NULL, tskNO_AFFINITY);
 }
@@ -477,6 +500,10 @@ void main_task(void* params)
     int audio_menu_setting = 0;
     int trip_reset = 0;
 
+    int adc_raw;
+    int voltage_in;
+    float voltage_out;
+
     unsigned int centis = 0;
 
     QueueHandle_t main_queue = g_global_state.global_main_queue;
@@ -495,30 +522,22 @@ void main_task(void* params)
     mive_uart_queue_packet_t* uart_queue_packet = NULL;
     mive_uart_task_packet_t* uart_recv_packet = NULL;
 
-#if (ESP32_BOARD_TYPE != DEVKIT)
-    esp_rom_gpio_pad_select_gpio(PSA_EXT_REG_PIN);
-    esp_rom_gpio_pad_select_gpio(TSS_OE_ENABLE_PIN);
-    esp_rom_gpio_pad_select_gpio(TJA_ENABLE_PIN);
+    tss_init(&g_global_state);
 
-    gpio_set_direction(PSA_EXT_REG_PIN, GPIO_MODE_OUTPUT);
-    gpio_set_direction(TSS_OE_ENABLE_PIN, GPIO_MODE_OUTPUT);
-    gpio_set_direction(TJA_ENABLE_PIN, GPIO_MODE_OUTPUT);
-
-    gpio_set_level(PSA_EXT_REG_PIN, 1);
-    gpio_set_level(TSS_OE_ENABLE_PIN, 1);
-    gpio_set_level(TJA_ENABLE_PIN, 0);
-
-#endif
+    g_radio_state.radio_source_target = PSA_RADIO_TUNER;
 
     // Setup the TSS packet events
 
-    // emf_receive(0x8c4);
+    g_radio_state.radio_state_user = 1;
 
-    // emf_send_reply_request(0x4d4);
+    emf_receive(0x8c4, 3);
+    emf_receive(0x9c4, 2);
 
-    // emf_send_reply_request(0x554);
+    emf_send_reply_request(0x4d4, 11);
 
-    // emf_send_reply_request(0x564);
+    emf_send_reply_request(0x554, 25);
+
+    emf_send_reply_request(0x564, 29);
 
     esp_timer_create_args_t timer_create_args = {
         .arg = g_global_state.global_main_queue,
@@ -550,13 +569,25 @@ void main_task(void* params)
     esp_timer_start_periodic(timer_handle, 100000);
     esp_timer_start_once(timer_handle_oneshot, 1000000);
 
-    g_radio_state.radio_state_ignition = 1;
+    g_radio_state.radio_state_user = 1;
 
-    rd3_send_state_change();
+    ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC_CHANNEL_5, &adc_raw));
+    ESP_ERROR_CHECK(adc_cali_raw_to_voltage(cali_handle, adc_raw, &voltage_in));
 
-    int adc_raw;
-    int voltage_in;
-    float voltage_out;
+    g_bat_voltage = (voltage_in * 0.001f * (ADC_R1 + ADC_R2)) / ADC_R2;
+    // ESP_LOGI(TAG, "Voltage: %.3f", g_bat_voltage);
+    global_libpsa_buffers.status_data->voltage = (uint16_t)(g_bat_voltage * 1000);
+
+    if (unlikely(g_bat_voltage < 2.0f))
+    {
+        struct mive_global_event sleep_event = {
+            .ev_data = {0},
+            .event = MIVE_EVENT_GLOBAL_SLEEP
+        };
+
+        xQueueSendToFront(main_queue, &sleep_event, 0);
+    }
+
     while(1)
     {
         // vTaskDelay(1000 / portTICK_PERIOD_MS);
@@ -598,19 +629,20 @@ void main_task(void* params)
             case MIVE_EVENT_TIMER_100MS:
                 {
                     centis++;
-                    if(centis % 4 == 0)
+                    emf_receive(0x8c4, 3);
+                    if(centis % 5 == 0)
                     {
 
                         // Send 0x5e4
                         struct psa_van_5e4_struct* tss_5e4_data;
                         mive_tss_task_packet_t* tss_5e4_packet = get_tss_task_buffer();
-                        
+
                         tss_5e4_packet->iden = 0x5e4;
                         tss_5e4_packet->message_type = TSS_TRANSMIT;
                         tss_5e4_packet->packet_size = sizeof(*tss_5e4_data);
                         tss_5e4_data = (struct psa_van_5e4_struct*)tss_5e4_packet->packet;
                         memset(tss_5e4_data, 0, sizeof(*tss_5e4_data));
-                        
+
                         if(g_global_car_state >= PSA_STATE_RADIO_ON)
                         {
                             tss_5e4_data->power_keep_alive = 1;
@@ -620,7 +652,7 @@ void main_task(void* params)
                         {
                             tss_5e4_data->overspeed_alert_value = 0x01;
                         }
-                        
+
                         if(g_global_car_state >= PSA_STATE_IGNITION)
                         {
                             switch (trip_reset)
@@ -637,12 +669,10 @@ void main_task(void* params)
                         }
 
                         trip_reset = 0;
-                        
-                        tss_event.event = MIVE_EVENT_TSS_WRITE_FRAME;
-                        tss_event.ev_data.tss_event_data = tss_5e4_packet;
-                        xQueueSendToBack(tss_queue, &tss_event, pdMS_TO_TICKS(100));
+
+                        tss_send_frame(tss_5e4_packet);
                     }
-                    if(centis % 10 == 0)
+                    if(centis % 10 == 1)
                     {
                         emf_send_reply_request(0x4d4, 11);
                     }
@@ -683,7 +713,7 @@ void main_task(void* params)
 
                     g_radio_state.radio_menu_state = 0;
                     // If CDC is selected, leave this as is
-                    g_radio_state.keyboard_override = (g_radio_state.radio_source == PSA_RADIO_EXTERNAL);
+                    g_radio_state.keyboard_override = (g_radio_state.radio_source == RD3_SOURCE_CDC);
                     esp_timer_stop(timer_handle_audio_timeout);
                     rd3_send_audio_settings();
                     rd3_send_state_change();
@@ -727,13 +757,16 @@ void main_task(void* params)
                 audio_menu_setting = 0;
                 g_radio_state.radio_menu_state = 0;
                 // If CDC is selected, leave this as is
-                g_radio_state.keyboard_override = (g_radio_state.radio_source == PSA_RADIO_EXTERNAL);
-                    
+                g_radio_state.keyboard_override = (g_radio_state.radio_source == RD3_SOURCE_CDC);
+
                 ESP_LOGI(TAG, "[MIVE_EVENT_EMF_CLOSE_AUDIO_MENU] menu_open: %d, menu_setting: %d" , audio_menu_open, audio_menu_setting);
                 libpsa_update_audio_settings_packet(audio_menu_open, audio_menu_setting);
                 libpsa_send_packet(PSA_IDENT_HEADUNIT);
                 rd3_send_audio_settings();
                 rd3_send_state_change();
+                break;
+            case MIVE_EVENT_TSS_INTERRUPT:
+                tss_process_interrupt(event.ev_data.tss_interrupt_data);
                 break;
             case MIVE_EVENT_VAN_NEW_DATA:
                 uart_queue_packet = event.ev_data.uart_update_data;

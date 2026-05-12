@@ -33,6 +33,8 @@ extern void rd3_send_command_packet(uint8_t* packet_data, uint8_t const packet_s
 extern void rd3_switch_source(enum psa_radio_source source);
 extern void rd3_send_state_change(void);
 extern void rd3_send_audio_settings(void);
+extern void rd3_send_volume_relative(int8_t change);
+extern void rd3_send_seek_command(uint8_t seek_dir);
 extern void emf_send_reply_request(uint16_t iden, uint8_t size);
 extern void emf_receive(uint16_t iden, uint8_t size);
 extern void emf_audio_setting_update(int setting_num, int update_value_by);

@@ -19,6 +19,15 @@ van_rmt_rx_instance_t global_van_instance;
 
 static uint8_t* buffers[VAN_MAX_NUM_PACKETS];
 
+// These messages are handled by the TSS. Safe to ignore
+static const uint16_t ignored_iden_filter[] = {
+    0x554, // Radio info
+    0x4d4, // Radio state
+    0x8c4, // Events
+    0x564, // BSI display contents
+    0x9c4, // Radio stalk
+};
+
 static int van_parse_bytes(van_rmt_rx_instance_t* instance, mive_van_packet_t* packet, rmt_rx_done_event_data_t rx_data, int packet_index)
 {
     rmt_symbol_word_t* items;
@@ -31,8 +40,9 @@ static int van_parse_bytes(van_rmt_rx_instance_t* instance, mive_van_packet_t* p
     size_t i = 0;
     bool isCompleteByte = false;
     int retval = 0;
+    bool skip = false;
 
-    uint8_t temp_array[VAN_MAX_PACKET_LEN + 10] = {0};
+    uint8_t temp_array[VAN_MAX_PACKET_LEN + 2] = {0};
 
     items = rx_data.received_symbols;
     // printf("Got %d symbols\n", rx_data.num_symbols);
@@ -54,6 +64,26 @@ static int van_parse_bytes(van_rmt_rx_instance_t* instance, mive_van_packet_t* p
         {
             temp_array[van_message_length] = finalByte;
             van_message_length++;
+        }
+        // Once we are at 3, check the filter. Maybe we don't need this packet
+        if(van_message_length == 3)
+        {
+            uint16_t iden = (((uint16_t)temp_array[1] << 8) | ((uint16_t)temp_array[2] & 0xf0)) >> 4;
+
+            for(int i = 0; i < (sizeof(ignored_iden_filter) / sizeof(*ignored_iden_filter)); ++i)
+            {
+                if(iden == ignored_iden_filter[i])
+                {
+                    skip = true;
+                    return -MIVE_ERR;
+                    break;
+                }
+            }
+
+            if(skip)
+            {
+                break;
+            }
         }
     }
     

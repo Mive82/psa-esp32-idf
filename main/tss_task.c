@@ -24,6 +24,8 @@ static int tss_task_buffer_num = 0;
 
 static const char *TAG = "tss_task";
 
+static portMUX_TYPE tss_task_spinlock = portMUX_INITIALIZER_UNLOCKED;
+
 QueueHandle_t tss_internal_queue = NULL;
 
 struct tss_message_config
@@ -39,17 +41,19 @@ enum tss_transmission_status
     MIVE_TSS_CHANNEL_FREE = 0,
     MIVE_TSS_TX_DONE = 1,
     MIVE_TSS_RX_DONE = 2,
-    MIVE_TSS_IN_PROGRESS,
     MIVE_TSS_FAIL,
+    MIVE_TSS_IN_PROGRESS,
 };
 
-struct tss_message_config message_configs[] = {
-    {.iden = 0x8c4, .message_type = TSS_RECEIVE, .memory_addr = 0, .channel_num = 1},
-    {.iden = 0x4d4, .message_type = TSS_REPLY_REQUEST, .memory_addr = 4, .channel_num = 2},
-    {.iden = 0x554, .message_type = TSS_REPLY_REQUEST, .memory_addr = 16, .channel_num = 3},
-    {.iden = 0x564, .message_type = TSS_REPLY_REQUEST, .memory_addr = 36, .channel_num = 4},
-    {.iden = 0x8d4, .message_type = TSS_TRANSMIT, .memory_addr = 66, .channel_num = 5},
-    {.iden = 0x5e4, .message_type = TSS_TRANSMIT, .memory_addr = 76, .channel_num = 6},
+// Packets that we need the TSS to ACK
+struct tss_message_config const message_configs[] = {
+    {.iden = 0x4d4, .message_type = TSS_REPLY_REQUEST, .memory_addr = 5,   .channel_num = 1},
+    {.iden = 0x554, .message_type = TSS_REPLY_REQUEST, .memory_addr = 17,  .channel_num = 2},
+    {.iden = 0x564, .message_type = TSS_REPLY_REQUEST, .memory_addr = 47,  .channel_num = 3},
+    {.iden = 0x5e4, .message_type = TSS_TRANSMIT,      .memory_addr = 97,  .channel_num = 4},
+    {.iden = 0x8c4, .message_type = TSS_RECEIVE,       .memory_addr = 0,   .channel_num = 5},
+    {.iden = 0x8d4, .message_type = TSS_TRANSMIT,      .memory_addr = 77,  .channel_num = 6},
+    {.iden = 0x9c4, .message_type = TSS_RECEIVE,       .memory_addr = 101, .channel_num = 7},
 };
 
 static int tss_check_channel_status(tss_instance_t* instance, uint16_t iden);
@@ -60,7 +64,7 @@ IRAM_ATTR static void tss_monitor_timer_callback_f(void* user_data)
     QueueHandle_t queue = (QueueHandle_t)user_data;
     struct mive_global_event timer_event = {
         .ev_data = {0},
-        .event = MIVE_EVENT_TSS_MONITOR_CHANNEL,
+        .event = MIVE_EVENT_TSS_INTERRUPT,
     };
     xQueueSendFromISR(queue, &timer_event, &high_task_wakeup);
     if(high_task_wakeup)
@@ -72,19 +76,30 @@ IRAM_ATTR static void tss_monitor_timer_callback_f(void* user_data)
 IRAM_ATTR static void tss_interrupt(void* user_data)
 {
     BaseType_t high_task_wakeup = pdFALSE;
-    tss_instance_t* instance = (tss_instance_t*)user_data;
-    interrupt_register_t it_register;
+    tss_instance_t* instance = (tss_instance_t*)&global_tss_instance;
+    QueueHandle_t tss_queue = (QueueHandle_t)user_data;
+    interrupt_register_t it_register = {0};
+    last_message_status_register_t lms_register = {0};
     struct mive_global_event timer_event = {
         .ev_data = {0},
-        .event = MIVE_EVENT_TSS_MONITOR_CHANNEL,
+        .event = MIVE_EVENT_TSS_INTERRUPT,
     };
 
     tss_register_get(instance, TSS_INTERRUPTSTATUS, &(it_register.Value));
+    tss_register_get(instance, TSS_LASTMESSAGESTATUS, &(lms_register.Value));
     tss_register_set(instance, TSS_INTERRUPTRESET, it_register.Value);
 
-    if(it_register.data.ROK)
+    // Ignore the Reset interrupt
+    if(it_register.Value & 0x7f)
     {
-        xQueueSendFromISR(tss_internal_queue, &timer_event, NULL);
+        timer_event.ev_data.tss_interrupt_data.channel_number = lms_register.data.IDTr;
+        timer_event.ev_data.tss_interrupt_data.interrupt_status_reg = it_register.Value;
+        xQueueSendToFrontFromISR(tss_queue, &timer_event, &high_task_wakeup);
+    }
+
+    if(high_task_wakeup)
+    {
+        portYIELD_FROM_ISR();
     }
 }
 
@@ -100,7 +115,7 @@ static uint8_t tss_get_memory_addr(uint16_t iden)
         }
     }
 
-    return 90;
+    return 106;
 }
 
 static uint8_t tss_get_channel_to_use(uint16_t iden)
@@ -115,7 +130,7 @@ static uint8_t tss_get_channel_to_use(uint16_t iden)
         }
     }
 
-    return 7;
+    return 12;
 }
 
 static uint8_t tss_get_message_type(uint16_t iden)
@@ -133,8 +148,9 @@ static uint8_t tss_get_message_type(uint16_t iden)
     return TSS_NONE;
 }
 
-static int tss_send_frame(tss_instance_t* instance, mive_tss_task_packet_t* packet)
+int tss_send_frame(mive_tss_task_packet_t* packet)
 {
+    tss_instance_t* instance = &global_tss_instance;
     int retval = MIVE_OK;
     int ret = 0;
     uint16_t iden = packet->iden;
@@ -151,12 +167,12 @@ static int tss_send_frame(tss_instance_t* instance, mive_tss_task_packet_t* pack
         msg_type = expected_type;
     }
 
-    if(ret > MIVE_TSS_RX_DONE)
+    if(ret > MIVE_TSS_FAIL)
     {
         if(msg_type == TSS_TRANSMIT)
         {
             // Queue the packet internally again
-            xQueueSendToBack(tss_internal_queue, &packet, 0);
+            xQueueSendToBack(tss_internal_queue, packet, 0);
             return MIVE_OK;
         }
     }
@@ -186,7 +202,7 @@ static int tss_send_frame(tss_instance_t* instance, mive_tss_task_packet_t* pack
         break;
 
     case TSS_RECEIVE:
-        retval = tss_receive_message(instance, channel, iden, memory_addr, packet->packet_size);
+        retval = tss_receive_message(instance, channel, iden, packet->packet_size, memory_addr);
         break;
 
     case TSS_DEF_REPLY:
@@ -231,42 +247,68 @@ static int tss_check_channel_status(tss_instance_t* instance, uint16_t iden)
 
     // ESP_LOGI(TAG, "CH %d - CHTx: %d", channel, reg_value.data.CHTx);
 
-    switch (message_type)
+    if(reg_value.data.CHER)
     {
-    case TSS_TRANSMIT:
-    case TSS_TRANSMIT_NOACK:
-    case TSS_IMM_REPLY:
-    case TSS_DEF_REPLY:
+        retval = MIVE_TSS_FAIL;
+    }
+    else {
+        switch (message_type)
         {
-            if(reg_value.data.CHTx)
+        case TSS_TRANSMIT:
+        case TSS_TRANSMIT_NOACK:
+        case TSS_IMM_REPLY:
+        case TSS_DEF_REPLY:
             {
-                retval = MIVE_TSS_TX_DONE;
+                if(reg_value.data.CHTx)
+                {
+                    retval = MIVE_TSS_TX_DONE;
+                }
+                else
+                {
+                    retval = MIVE_TSS_IN_PROGRESS;
+                }
             }
-            else
+            break;
+        case TSS_RECEIVE:
             {
-                retval = MIVE_TSS_IN_PROGRESS;
+                if(reg_value.data.CHRx)
+                {
+                    retval = MIVE_TSS_RX_DONE;
+                }
+                else
+                {
+                    retval = MIVE_TSS_IN_PROGRESS;
+                }
             }
+            break;
+        case TSS_REPLY_REQUEST:
+            {
+                if(reg_value.data.CHTx)
+                {
+                    // Transmit part is done
+                    if(reg_value.data.CHRx)
+                    {
+                        retval = MIVE_TSS_RX_DONE;
+                    }
+                    // All frames I request are in-frame replies,
+                    // so treat this case as a failure
+                    else
+                    {
+                        retval = MIVE_TSS_FAIL;
+                    }
+                }
+                else
+                {
+                    retval = MIVE_TSS_IN_PROGRESS;
+                }
+            }
+        default:
+            retval = -MIVE_ERR_INVALID_ARGUMENT;
+            break;
         }
-        break;
-    case TSS_REPLY_REQUEST:
-    case TSS_RECEIVE:
-        {
-            if(reg_value.data.CHRx)
-            {
-                retval = MIVE_TSS_RX_DONE;
-            }
-            else
-            {
-                retval = MIVE_TSS_IN_PROGRESS;
-            }
-        }
-        break;
-    default:
-        retval = -MIVE_ERR_INVALID_ARGUMENT;
-        break;
     }
 
-    if(retval == MIVE_TSS_RX_DONE || retval == MIVE_TSS_TX_DONE)
+    if(retval != MIVE_TSS_IN_PROGRESS)
     {
         tss_free_channel(instance, channel);
     }
@@ -274,7 +316,7 @@ static int tss_check_channel_status(tss_instance_t* instance, uint16_t iden)
     return retval;
 }
 
-static void tss_process_internal_queue(tss_instance_t* instance)
+static void tss_process_internal_queue()
 {
     int ret = 0;
     mive_tss_task_packet_t queue_data = {0};
@@ -282,17 +324,64 @@ static void tss_process_internal_queue(tss_instance_t* instance)
     ret = xQueueReceive(tss_internal_queue, &queue_data, 0);
     if(ret == pdPASS)
     {
-        tss_send_frame(instance, &queue_data);
+        tss_send_frame(&queue_data);
+    }
+}
+
+static int tss_get_frame(tss_instance_t* instance, struct tss_message_config* message, mive_tss_task_packet_t* output)
+{
+    uint8_t data_size = 0;
+    uint8_t regvals[32] = {0};
+    uint8_t memory_addr = message->memory_addr + 0x80;
+    uint16_t iden = message->iden;
+    uint8_t regval = 0;
+
+    tss_register_get(instance, memory_addr, &regval);
+
+    data_size = regval & 0x1f;
+
+    ESP_LOGI(TAG, "Got %03x(%d)", iden, data_size);
+    if(data_size > 0 && data_size < 30)
+    {
+        tss_registers_get(instance, memory_addr + 1, output->packet, data_size);
+
+        output->iden = iden;
+        output->packet_size = data_size;
+        return MIVE_OK;
+    }
+    else{
+        memset(output, 0, sizeof(*output));
+        return -MIVE_ERR_VAN_INVALID_PACKET_SIZE;
     }
 }
 
 mive_tss_task_packet_t* get_tss_task_buffer(void)
 {
+    vPortEnterCriticalSafe(&tss_task_spinlock);
     mive_tss_task_packet_t* to_ret = &global_tss_buffers[tss_task_buffer_num];
 
     tss_task_buffer_num = (tss_task_buffer_num + 1) % PSA_MAIN_TSS_BUFFERS_NUM;
 
+    vPortExitCriticalSafe(&tss_task_spinlock);
     return to_ret;
+}
+
+void tss_init(void* params)
+{
+    mive_global_state_t* state = (mive_global_state_t*) params;
+    tss_instance_t* instance = &global_tss_instance;
+    tss_internal_queue = xQueueCreate(10, sizeof(mive_tss_task_packet_t));
+
+    tss_create(instance);
+
+    tss_start(instance);
+
+    gpio_set_direction(TSS_INT_PIN, GPIO_MODE_INPUT);
+
+    ESP_ERROR_CHECK_WITHOUT_ABORT(gpio_set_intr_type(TSS_INT_PIN, GPIO_INTR_LOW_LEVEL));
+
+    ESP_ERROR_CHECK_WITHOUT_ABORT(gpio_isr_handler_add(TSS_INT_PIN, tss_interrupt, state->global_main_queue));
+
 }
 
 void tss_task(void* params)
@@ -305,7 +394,8 @@ void tss_task(void* params)
     struct mive_global_event event_data = {0};
     QueueHandle_t tss_queue = state->global_tss_queue;
     esp_timer_handle_t tss_timer_handle = NULL;
-    tss_internal_queue = xQueueCreate(10, sizeof(mive_tss_task_packet_t));
+
+    tss_init(state);
 
     esp_timer_create_args_t timer_create_args = {
         .arg = tss_queue,
@@ -315,18 +405,8 @@ void tss_task(void* params)
         .skip_unhandled_events = true
     };
 
-    esp_timer_create(&timer_create_args, &tss_timer_handle);
-    esp_timer_start_once(tss_timer_handle, 500000);
-
-    tss_create(instance);
-
-    tss_start(instance);
-
-    gpio_set_direction(TSS_INT_PIN, GPIO_MODE_INPUT);
-
-    // gpio_set_intr_type(TSS_INT_PIN, GPIO_INTR_LOW_LEVEL);
-
-    // gpio_isr_handler_add(TSS_INT_PIN, tss_interrupt, instance);
+    // esp_timer_create(&timer_create_args, &tss_timer_handle);
+    // esp_timer_start_once(tss_timer_handle, 500000);
 
     while (task_running)
     {
@@ -337,7 +417,7 @@ void tss_task(void* params)
             switch (event_data.event)
             {
             case MIVE_EVENT_TSS_WRITE_FRAME:
-                ret = tss_send_frame(instance, event_data.ev_data.tss_event_data);
+                ret = tss_send_frame(event_data.ev_data.tss_event_data);
                 // if(ret == MIVE_OK)
                 // {
                 //     event_data.event = MIVE_EVENT_TSS_MONITOR_CHANNEL;
@@ -345,45 +425,22 @@ void tss_task(void* params)
                 // }
                 break;
             // Timer event
-            case MIVE_EVENT_TSS_MONITOR_CHANNEL:
+            case MIVE_EVENT_TSS_INTERRUPT:
                 {
-                    uint16_t iden = message_configs[mess_idx].iden;
                     // Process the internal queue for any backed up messages
-                    tss_process_internal_queue(instance);
+                    tss_process_internal_queue();
 
-                    // Check if any channels need to be setup again
-                    ret = tss_check_channel_status(instance, iden);
-
-                    // Setup the receive messages automatically
-                    if(ret <= MIVE_TSS_RX_DONE && message_configs[mess_idx].message_type == TSS_RECEIVE)
+                    for(int i = 0; i < (sizeof(message_configs) / sizeof(*message_configs)); ++i)
                     {
-                        emf_receive(iden, 3);
-                    }
+                        uint16_t iden = message_configs[i].iden;
+                        ret = tss_check_channel_status(instance, iden);
 
-                    ret = esp_timer_restart(tss_timer_handle, 50000);
-                    if(ret != ESP_OK)
-                    {
-                        esp_timer_start_once(tss_timer_handle, 50000);
+                        if(ret <= MIVE_TSS_RX_DONE && message_configs[i].message_type == TSS_RECEIVE)
+                        {
+                            emf_receive(iden, 3);
+                        }
                     }
-
-                    mess_idx = (mess_idx + 1) % (sizeof(message_configs) / sizeof(*message_configs));
                 }
-                break;
-
-            case MIVE_EVENT_TSS_RESET:
-                tss_start(instance);
-                break;
-
-            case MIVE_EVENT_TSS_ACTIVATE:
-                tss_activate(instance);
-                break;
-
-            case MIVE_EVENT_TSS_IDLE:
-                tss_idle(instance);
-                break;
-
-            case MIVE_EVENT_TSS_SLEEP:
-                tss_sleep(instance);
                 break;
             default:
                 break;
@@ -391,4 +448,85 @@ void tss_task(void* params)
             taskYIELD();
         }
     }
+}
+
+static int tss_get_interrupt_type(interrupt_register_t regval)
+{
+    int int_type = 0;
+    if(regval.data.RNOK || regval.data.ROK)
+    {
+        return TSS_RECEIVE;
+    }
+
+    if(regval.data.TOK)
+    {
+        return TSS_TRANSMIT;
+    }
+}
+
+void tss_process_interrupt(mive_tss_interrupt_packet_t interrupt_data)
+{
+    int ret = 0;
+    unsigned int idx = 0;
+    tss_instance_t* instance = &global_tss_instance;
+    mive_tss_task_packet_t* task_packet = NULL;
+    interrupt_register_t int_reg = {.Value = interrupt_data.interrupt_status_reg};
+    uint8_t channel = interrupt_data.channel_number;
+    uint16_t iden = 0;
+    for(unsigned int i = 0; i < (sizeof(message_configs) / sizeof(*message_configs)); ++i)
+    {
+        if(message_configs[i].channel_num == channel)
+        {
+            iden = message_configs[i].iden;
+            idx = i;
+            break;
+        }
+    }
+
+    if(iden == 0)
+    {
+        return;
+    }
+    ESP_LOGI(TAG, "Interrupt caused by channel %d - %x", channel, iden);
+    // Process the internal queue for any backed up messages
+
+    switch (message_configs[idx].message_type)
+    {
+    case TSS_REPLY_REQUEST:
+    case TSS_RECEIVE:
+        if(!int_reg.data.RE){
+
+            task_packet = get_tss_task_buffer();
+            ret = tss_get_frame(instance, &message_configs[idx], task_packet);
+            if(ret == MIVE_OK)
+            {
+                psa_parse_van_packet(
+                    task_packet->iden, task_packet->packet_size, task_packet->packet, &global_libpsa_buffers);
+            }
+        }
+        break;
+    case TSS_TRANSMIT:
+    case TSS_TRANSMIT_NOACK:
+        if(!int_reg.data.TE)
+        {
+            // Handle transmit sequence here
+            tss_process_internal_queue();
+        }
+        break;
+    default:
+        break;
+    }
+
+    switch (iden)
+    {
+    case 0x8c4:
+        emf_receive(0x8c4, 4);
+        break;
+    case 0x9c4:
+        emf_receive(0x9c4, 3);
+        break;
+    default:
+        break;
+    }
+
 }

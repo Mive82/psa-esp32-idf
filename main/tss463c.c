@@ -135,39 +135,39 @@ static int tss_motorolla_mode(tss_instance_t *instance)
     transaction.length = 8;
     transaction.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
 
-    ESP_ERROR_CHECK(spi_device_transmit(instance->tss_handle, &transaction));
+    spi_device_polling_transmit(instance->tss_handle, &transaction);
 
     if (transaction.rx_data[0] != 0xAA)
     {
-        printf("Error setting motorolla mode: Invalid response 0x%02X / 0xAA\n", transaction.rx_data[0]);
+        // printf("Error setting motorolla mode: Invalid response 0x%02X / 0xAA\n", transaction.rx_data[0]);
         return_val = 1;
-        // goto error;
+        goto error;
     }
 
-    usleep(4);
+    usleep(2);
 
     transaction.user = instance;
     transaction.tx_data[0] = 0x00;
     transaction.length = 8;
     transaction.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
 
-    ESP_ERROR_CHECK(spi_device_transmit(instance->tss_handle, &transaction));
+    spi_device_polling_transmit(instance->tss_handle, &transaction);
 
     if (transaction.rx_data[0] != 0x55)
     {
-        printf("Error setting motorolla mode: Invalid response 0x%02X / 0x55\n", transaction.rx_data[0]);
+        // printf("Error setting motorolla mode: Invalid response 0x%02X / 0x55\n", transaction.rx_data[0]);
         return_val = 1;
-        // goto error;
+        goto error;
     }
 
     usleep(2);
 
-    // error:
     // gpio_set_level(instance->cs_pin, 1);
+    instance->chip_mode = TSS_MODE_IDLE;
+
+error:
     TSS_DESELECT();
     spi_device_release_bus(instance->tss_handle);
-
-    instance->chip_mode = TSS_MODE_IDLE;
 
     return return_val;
 }
@@ -272,11 +272,11 @@ IRAM_ATTR int tss_register_set(
 
     if(unlikely(instance->chip_mode == TSS_MODE_SLEEP))
     {
-        ESP_LOGE(TAG, "[%s] Chip in sleep mode", __func__);
+        // ESP_LOGE(TAG, "[%s] Chip in sleep mode", __func__);
         return -1;
     }
 
-    xSemaphoreTake(instance->tss_spi_semaphore, portMAX_DELAY);
+    vPortEnterCriticalSafe(&tss_spinlock);
     spi_device_acquire_bus(instance->tss_handle, portMAX_DELAY);
 
     // gpio_set_level(instance->cs_pin, 0);
@@ -288,11 +288,11 @@ IRAM_ATTR int tss_register_set(
 
     usleep(1);
 
-    ESP_ERROR_CHECK(spi_device_transmit(instance->tss_handle, &transaction));
+    spi_device_polling_transmit(instance->tss_handle, &transaction);
 
     if (transaction.rx_data[0] != 0xAA)
     {
-        printf("Error setting regiser: Invalid response 0x%02x / 0xAA\n", transaction.rx_data[0]);
+        // printf("Error setting regiser: Invalid response 0x%02x / 0xAA\n", transaction.rx_data[0]);
         return_val = 1;
         goto error;
     }
@@ -301,28 +301,28 @@ IRAM_ATTR int tss_register_set(
     transaction.length = 8;
     transaction.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
 
-    usleep(2);
-    ESP_ERROR_CHECK(spi_device_transmit(instance->tss_handle, &transaction));
+    usleep(1);
+    spi_device_polling_transmit(instance->tss_handle, &transaction);
 
     if (transaction.rx_data[0] != 0x55)
     {
-        printf("Error setting regiser: Invalid response 0x%02x / 0x55\n", transaction.rx_data[0]);
+        // printf("Error setting regiser: Invalid response 0x%02x / 0x55\n", transaction.rx_data[0]);
         return_val = 1;
         goto error;
     }
 
-    usleep(4);
+    usleep(2);
 
     transaction.tx_data[0] = reg_value;
     transaction.length = 8;
     transaction.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
 
-    ESP_ERROR_CHECK(spi_device_transmit(instance->tss_handle, &transaction));
+    spi_device_polling_transmit(instance->tss_handle, &transaction);
 
 error:
     TSS_DESELECT();
     spi_device_release_bus(instance->tss_handle);
-    xSemaphoreGive(instance->tss_spi_semaphore);
+    vPortExitCriticalSafe(&tss_spinlock);
 
     return return_val;
 }
@@ -337,7 +337,7 @@ IRAM_ATTR int tss_registers_set(
     int return_val = 0;
     spi_transaction_t transaction = {0};
 
-    xSemaphoreTake(instance->tss_spi_semaphore, portMAX_DELAY);
+    vPortEnterCriticalSafe(&tss_spinlock);
     // printf("Setting %d registers starting from addr %d\n", count, reg_addr);
     spi_device_acquire_bus(instance->tss_handle, portMAX_DELAY);
     TSS_SELECT();
@@ -348,7 +348,7 @@ IRAM_ATTR int tss_registers_set(
     transaction.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
 
     usleep(1);
-    spi_device_transmit(instance->tss_handle, &transaction);
+    spi_device_polling_transmit(instance->tss_handle, &transaction);
     if (transaction.rx_data[0] != 0xAA)
     {
         //printf("Error setting regiser: Invalid response 0x%02x / 0xAA\n", transaction.rx_data[0]);
@@ -358,37 +358,36 @@ IRAM_ATTR int tss_registers_set(
 
     transaction.tx_data[0] = TSS_WRITE;
 
-    usleep(2);
-    spi_device_transmit(instance->tss_handle, &transaction);
+    usleep(1);
+    spi_device_polling_transmit(instance->tss_handle, &transaction);
 
     if (transaction.rx_data[0] != 0x55)
     {
-        printf("Error setting regiser: Invalid response 0x%02x / 0x55\n", transaction.rx_data[0]);
+        // printf("Error setting regiser: Invalid response 0x%02x / 0x55\n", transaction.rx_data[0]);
         return_val = 1;
         goto error;
     }
 
-    usleep(4);
+    usleep(3);
 
     // printf("Transmitting: ");
     for (i = 0; i < count; ++i)
     {
         transaction.tx_data[0] = values[i];
-        spi_device_transmit(instance->tss_handle, &transaction);
+        spi_device_polling_transmit(instance->tss_handle, &transaction);
         // printf("%02x ", transaction.tx_data[0]);
-        usleep(3);
+        usleep(2);
     }
 
     // printf("\n");
 
-    usleep(2);
+    usleep(1);
 
 error:
 
     TSS_DESELECT();
     spi_device_release_bus(instance->tss_handle);
-
-    xSemaphoreGive(instance->tss_spi_semaphore);
+    vPortExitCriticalSafe(&tss_spinlock);
 
     return return_val;
 }
@@ -401,7 +400,7 @@ IRAM_ATTR int tss_register_get(
     int return_val = 0;
     spi_transaction_t transaction = {0};
 
-    xSemaphoreTake(instance->tss_spi_semaphore, portMAX_DELAY);
+    vPortEnterCriticalSafe(&tss_spinlock);
     spi_device_acquire_bus(instance->tss_handle, portMAX_DELAY);
 
     // gpio_set_level(instance->cs_pin, 0);
@@ -413,11 +412,11 @@ IRAM_ATTR int tss_register_get(
 
     usleep(1);
 
-    ESP_ERROR_CHECK(spi_device_transmit(instance->tss_handle, &transaction));
+    spi_device_polling_transmit(instance->tss_handle, &transaction);
 
     if (transaction.rx_data[0] != 0xAA)
     {
-        printf("Error getting regiser: Invalid response 0x%02x / 0xAA\n", transaction.rx_data[0]);
+        // printf("Error getting regiser: Invalid response 0x%02x / 0xAA\n", transaction.rx_data[0]);
         return_val = 1;
         goto error;
     }
@@ -425,26 +424,27 @@ IRAM_ATTR int tss_register_get(
     transaction.tx_data[0] = TSS_READ;
 
     usleep(2);
-    ESP_ERROR_CHECK(spi_device_transmit(instance->tss_handle, &transaction));
+    spi_device_polling_transmit(instance->tss_handle, &transaction);
 
     if (transaction.rx_data[0] != 0x55)
     {
-        printf("Error getting regiser: Invalid response 0x%02x / 0x55\n", transaction.rx_data[0]);
+        // printf("Error getting regiser: Invalid response 0x%02x / 0x55\n", transaction.rx_data[0]);
         return_val = 1;
         goto error;
     }
 
-    usleep(4);
+    usleep(3);
 
     transaction.tx_data[0] = 0xFF;
-    ESP_ERROR_CHECK(spi_device_transmit(instance->tss_handle, &transaction));
+    spi_device_polling_transmit(instance->tss_handle, &transaction);
+
+    usleep(1);
 
     *reg_value = transaction.rx_data[0];
 error:
     TSS_DESELECT();
     spi_device_release_bus(instance->tss_handle);
-
-    xSemaphoreGive(instance->tss_spi_semaphore);
+    vPortExitCriticalSafe(&tss_spinlock);
 
     return return_val;
 }
@@ -465,11 +465,11 @@ IRAM_ATTR int tss_registers_get(
 
     if(unlikely(instance->chip_mode == TSS_MODE_SLEEP))
     {
-        ESP_LOGE(TAG, "[%s] Chip in sleep mode", __func__);
+        // ESP_LOGE(TAG, "[%s] Chip in sleep mode", __func__);
         return -1;
     }
 
-    xSemaphoreTake(instance->tss_spi_semaphore, portMAX_DELAY);
+    vPortEnterCriticalSafe(&tss_spinlock);
     spi_device_acquire_bus(instance->tss_handle, portMAX_DELAY);
 
     // gpio_set_level(instance->cs_pin, 0);
@@ -482,11 +482,11 @@ IRAM_ATTR int tss_registers_get(
 
     usleep(1);
 
-    ESP_ERROR_CHECK(spi_device_transmit(instance->tss_handle, &transaction));
+    spi_device_polling_transmit(instance->tss_handle, &transaction);
 
     if (transaction.rx_data[0] != 0xAA)
     {
-        printf("Error setting regiser: Invalid response 0x%02x / 0xAA\n", transaction.rx_data[0]);
+        // printf("Error setting regiser: Invalid response 0x%02x / 0xAA\n", transaction.rx_data[0]);
         return_val = 1;
         goto error;
     }
@@ -494,31 +494,29 @@ IRAM_ATTR int tss_registers_get(
     transaction.tx_data[0] = TSS_READ;
 
     usleep(2);
-    ESP_ERROR_CHECK(spi_device_transmit(instance->tss_handle, &transaction));
+    spi_device_polling_transmit(instance->tss_handle, &transaction);
 
     if (transaction.rx_data[0] != 0x55)
     {
-        printf("Error setting regiser: Invalid response 0x%02x / 0x55\n", transaction.rx_data[0]);
+        // printf("Error setting regiser: Invalid response 0x%02x / 0x55\n", transaction.rx_data[0]);
         return_val = 1;
         goto error;
     }
 
-    usleep(4);
+    usleep(2);
 
     for (int i = 0; i < count; ++i)
     {
-
         transaction.tx_data[0] = 0xFF;
-        ESP_ERROR_CHECK(spi_device_transmit(instance->tss_handle, &transaction));
+        spi_device_polling_transmit(instance->tss_handle, &transaction);
         buffer[i] = transaction.rx_data[0];
-        usleep(3);
+        usleep(2);
     }
 
 error:
     TSS_DESELECT();
     spi_device_release_bus(instance->tss_handle);
-
-    xSemaphoreGive(instance->tss_spi_semaphore);
+    vPortExitCriticalSafe(&tss_spinlock);
 
     return return_val;
 }
@@ -617,7 +615,7 @@ int tss_create(tss_instance_t* instance)
 
     gpio_config_t io_conf = {
         .intr_type = GPIO_INTR_DISABLE,
-        .mode = GPIO_MODE_OUTPUT_OD,
+        .mode = GPIO_MODE_OUTPUT,
         .pin_bit_mask = (1 << instance->cs_pin),
         .pull_up_en = GPIO_PULLUP_ENABLE,
     };
@@ -635,10 +633,17 @@ int tss_create(tss_instance_t* instance)
 
 int tss_start(tss_instance_t *instance)
 {
-
-    if (tss_motorolla_mode(instance))
+    // When waking up from sleep, the TSS takes a couple tries to start up
+    for(int i = 0; i < 100; ++i)
     {
-        // return 1;
+        if (tss_motorolla_mode(instance) == 0)
+        {
+            printf("Got motorolla mode\n");
+            break;
+        }
+        else{
+            usleep(10000);
+        }
     }
     usleep(3);
 
@@ -667,9 +672,9 @@ int tss_start(tss_instance_t *instance)
     interrupt_register_t it_register;
     it_register.Value = 0;
     it_register.data.RESET = 1; // Must be 1
-    it_register.data.TOK = 0;   // Change this to enable interrupt on successful transmissions
-    it_register.data.ROK = 0;   // Change this to enable interrupt on reception with RAK
-    it_register.data.RNOK = 0;  // Change this to enable interrupt on reception without RAK
+    it_register.data.TOK = 1;   // Change this to enable interrupt on successful transmissions
+    it_register.data.ROK = 1;   // Change this to enable interrupt on reception with RAK
+    it_register.data.RNOK = 1;  // Change this to enable interrupt on reception without RAK
     it_register.data.RE = 0;    // Change this to enable interrupt on reception error
     it_register.data.TE = 0;    // Change this to enable interrupt on transmission error
 
@@ -677,8 +682,6 @@ int tss_start(tss_instance_t *instance)
     {
         return 1;
     }
-
-    tss_register_get(instance, TSS_INTERRUPTSTATUS, &(it_register.Value));
 
     // Reset all interrupt statuses
     it_register.data.RESET = 1;
@@ -696,19 +699,6 @@ int tss_start(tss_instance_t *instance)
     // Memsetting the TSS's RAM to zeros
     uint8_t zeroarray[128] = {0};
     if (tss_registers_set(instance, TSS_GETMAIL(0), zeroarray, 128))
-    {
-        return 1;
-    }
-
-    it_register.Value = 0;
-    it_register.data.RESET = 1; // Must be 1
-    it_register.data.TOK = 0;   // Change this to enable interrupt on successful transmissions
-    it_register.data.ROK = 1;   // Change this to enable interrupt on reception with RAK
-    it_register.data.RNOK = 0;  // Change this to enable interrupt on reception without RAK
-    it_register.data.RE = 0;    // Change this to enable interrupt on reception error
-    it_register.data.TE = 0;    // Change this to enable interrupt on transmission error
-
-    if (tss_register_set(instance, TSS_INTERRUPTENABLE, it_register.Value))
     {
         return 1;
     }
@@ -747,16 +737,9 @@ int tss_transmit_message(
         printf("[%s] Invalid channel %d (%d)\n", __func__, channel, retval);
         return retval;
     }
-    if(memory_offset & 0x80)
-    {
-        memory_address = memory_offset;
-    }
-    else
-    {
-        memory_address = TSS_GETMAIL(memory_offset);
-    }
 
-    
+    memory_address = TSS_GETMAIL(memory_offset);
+
     ESP_LOGD(TAG, "[%s] Using memory addr 0x%02x", __func__, memory_address);
 
     get_bytes_from_iden(iden, id1, id2);
@@ -769,9 +752,9 @@ int tss_transmit_message(
     id2_reg.data.RAK = rak;
 
     mp_reg.data.DRAK = 0;
-    mp_reg.data.message_pointer = memory_address - (uint8_t)0x80;
+    mp_reg.data.message_pointer = memory_address & 0x7F;
 
-    mls_reg.data.CHTx = 0;
+    mls_reg.Value = 0;
     mls_reg.data.M_L = data_size + 1;
 
     // When writing to the bus, the first element in the buffer is ignored,
@@ -826,14 +809,7 @@ int tss_immediate_reply_message(
         return retval;
     }
 
-    if(memory_offset & 0x80)
-    {
-        memory_address = memory_offset;
-    }
-    else
-    {
-        memory_address = TSS_GETMAIL(memory_offset);
-    }
+    memory_address = TSS_GETMAIL(memory_offset);
 
     ESP_LOGD(TAG, "[%s] Using memory addr 0x%02x", __func__, memory_address);
 
@@ -849,8 +825,7 @@ int tss_immediate_reply_message(
     mp_reg.data.DRAK = 0;
     mp_reg.data.message_pointer = memory_address & 0x7F;
 
-    mls_reg.data.CHTx = 0;
-    mls_reg.data.CHRx = 0;
+    mls_reg.Value = 0;
     mls_reg.data.M_L = data_size + 1;
 
     // When writing to the bus, the first element in the buffer is ignored,
@@ -862,7 +837,7 @@ int tss_immediate_reply_message(
     channel_data[2] = mp_reg.Value;
     channel_data[3] = mls_reg.Value;
     channel_data[6] = 0xff;
-    channel_data[7] = 0xff << 4;
+    channel_data[7] = 0xf0;
 
     tss_registers_set(instance, TSS_CHANNEL_ADDR(channel), channel_data, 8);
 
@@ -896,14 +871,7 @@ int tss_receive_message(
     tss_channel_t* chan = NULL;
     int retval = MIVE_OK;
 
-    if(memory_offset & 0x80)
-    {
-        memory_address = memory_offset;
-    }
-    else
-    {
-        memory_address = TSS_GETMAIL(memory_offset);
-    }
+    memory_address = TSS_GETMAIL(memory_offset);
 
     ESP_LOGD(TAG, "[%s] Using memory addr 0x%02x", __func__, memory_address);
 
@@ -918,7 +886,7 @@ int tss_receive_message(
     mp_reg.data.DRAK = 0;
     mp_reg.data.message_pointer = memory_address & 0x7F;
 
-    mls_reg.data.CHTx = 0;
+    mls_reg.Value = 0;
     mls_reg.data.M_L = size + 1; // Don't care about the DATA. Only that the ACK is sent.
 
     channel_data[0] = id1;
@@ -926,7 +894,7 @@ int tss_receive_message(
     channel_data[2] = mp_reg.Value;
     channel_data[3] = mls_reg.Value;
     channel_data[6] = 0xff;
-    channel_data[7] = 0xff << 4;
+    channel_data[7] = 0xf0;
 
     tss_registers_set(instance, TSS_CHANNEL_ADDR(channel), channel_data, 8);
 
@@ -961,14 +929,7 @@ int tss_reply_request_message(
     tss_channel_t* chan = NULL;
     int retval = MIVE_OK;
 
-    if(memory_offset & 0x80)
-    {
-        memory_address = memory_offset;
-    }
-    else
-    {
-        memory_address = TSS_GETMAIL(memory_offset);
-    }
+    memory_address = TSS_GETMAIL(memory_offset);
 
     ESP_LOGD(TAG, "[%s] Using memory addr 0x%02x", __func__, memory_address);
 
@@ -983,8 +944,7 @@ int tss_reply_request_message(
     mp_reg.data.DRAK = 0;
     mp_reg.data.message_pointer = memory_address & 0x7F;
 
-    mls_reg.data.CHTx = 0;
-    mls_reg.data.CHRx = 0;
+    mls_reg.Value = 0;
     mls_reg.data.M_L = data_size + 1; // Don't care about the DATA. Only that the ACK is sent.
 
     channel_data[0] = id1;
@@ -992,7 +952,7 @@ int tss_reply_request_message(
     channel_data[2] = mp_reg.Value;
     channel_data[3] = mls_reg.Value;
     channel_data[6] = 0xff;
-    channel_data[7] = 0xff << 4;
+    channel_data[7] = 0xf0;
 
     tss_registers_set(instance, TSS_CHANNEL_ADDR(channel), channel_data, 8);
 

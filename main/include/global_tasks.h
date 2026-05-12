@@ -15,7 +15,7 @@ enum mive_global_event_t
     MIVE_EVENT_TSS_IDLE,
     MIVE_EVENT_TSS_SLEEP,
     MIVE_EVENT_TSS_WRITE_FRAME,
-    MIVE_EVENT_TSS_MONITOR_CHANNEL,
+    MIVE_EVENT_TSS_INTERRUPT,
     MIVE_EVENT_TSS_PROCESS_QUEUE,
     MIVE_EVENT_TSS_STOP,
 
@@ -41,7 +41,7 @@ enum mive_global_event_t
 
 /* VAN Task type definitions */
 
-#define VAN_MAX_PACKET_LEN 40
+#define VAN_MAX_PACKET_LEN 35
 
 // ev_data for MIVE_EVENT_RMT_NEW_VAN_FRAME
 typedef struct mive_van_packet
@@ -62,6 +62,12 @@ typedef struct mive_tss_task_packet
     uint8_t packet[VAN_MAX_PACKET_LEN];
     uint8_t packet_size;
 } mive_tss_task_packet_t;
+
+typedef struct mive_tss_interrupt_packet
+{
+    uint8_t channel_number; // Channel that triggered the interrupt
+    uint8_t interrupt_status_reg;
+} mive_tss_interrupt_packet_t;
 
 /* 
 UART Task event data
@@ -100,6 +106,8 @@ struct mive_global_event
         mive_uart_queue_packet_t* uart_update_data;
         // `MIVE_EVENT_RMT_NEW_VAN_FRAME`
         mive_van_packet_t* rmt_van_packet;
+        // `MIVE_EVENT_TSS_INTERRUPT`
+        mive_tss_interrupt_packet_t tss_interrupt_data;
         void* event_data;
     } ev_data;
 };
@@ -109,5 +117,10 @@ struct mive_global_event
 void van_rmt_task(void* params);
 void tss_task(void* params);
 void uart_task(void* params);
+
+void tss_init(void* params);
+// Send frame without going through queues
+int tss_send_frame(mive_tss_task_packet_t* packet);
+void tss_process_interrupt(mive_tss_interrupt_packet_t interrupt_data);
 
 #endif // MIVE_GLOBAL_TASKS_H

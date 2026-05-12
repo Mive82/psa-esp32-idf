@@ -11,5 +11,7 @@
 #include "van_structs/van_trip_computer_struct.h"
 #include "van_structs/van_event_structs.h"
 #include "van_structs/van_struct_5e4.h"
+#include "van_structs/van_remote_stalk_structs.h"
+#include "van_structs/van_rd3_command_struct.h"
 
 #endif // VAN_STRUCTS_H

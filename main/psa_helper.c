@@ -43,24 +43,24 @@ void libpsa_send_packet(uint16_t ident)
     case PSA_IDENT_ENGINE:
         packet->data_size = sizeof(*global_libpsa_buffers.engine_data);
         memcpy(
-            packet->data, 
-            global_libpsa_buffers.engine_data, 
+            packet->data,
+            global_libpsa_buffers.engine_data,
             packet->data_size);
         packet->iden = ident;
         break;
     case PSA_IDENT_RADIO:
         packet->data_size = sizeof(*global_libpsa_buffers.radio_data);
         memcpy(
-            packet->data, 
-            global_libpsa_buffers.radio_data, 
+            packet->data,
+            global_libpsa_buffers.radio_data,
             packet->data_size);
         packet->iden = ident;
         break;
     case PSA_IDENT_VIN:
         packet->data_size = 17;
         memcpy(
-            packet->data, 
-            global_libpsa_buffers.vin_data, 
+            packet->data,
+            global_libpsa_buffers.vin_data,
             packet->data_size);
         packet->iden = ident;
         break;
@@ -70,26 +70,26 @@ void libpsa_send_packet(uint16_t ident)
         {
             case PSA_AM_1:
                 memcpy(
-                    packet->data, 
-                    global_libpsa_buffers.presets_data_am, 
+                    packet->data,
+                    global_libpsa_buffers.presets_data_am,
                     packet->data_size);
                 break;
             case PSA_FM_1:
                 memcpy(
-                    packet->data, 
-                    global_libpsa_buffers.presets_data_fm_1, 
+                    packet->data,
+                    global_libpsa_buffers.presets_data_fm_1,
                     packet->data_size);
                 break;
             case PSA_FM_2:
                 memcpy(
-                    packet->data, 
-                    global_libpsa_buffers.presets_data_fm_2, 
+                    packet->data,
+                    global_libpsa_buffers.presets_data_fm_2,
                     packet->data_size);
                 break;
             case PSA_FM_AST:
                 memcpy(
-                    packet->data, 
-                    global_libpsa_buffers.presets_data_fm_ast, 
+                    packet->data,
+                    global_libpsa_buffers.presets_data_fm_ast,
                     packet->data_size);
                 break;
             default:
@@ -101,8 +101,8 @@ void libpsa_send_packet(uint16_t ident)
     case PSA_IDENT_CAR_STATUS:
         packet->data_size = sizeof(*global_libpsa_buffers.status_data);
         memcpy(
-            packet->data, 
-            global_libpsa_buffers.status_data, 
+            packet->data,
+            global_libpsa_buffers.status_data,
             packet->data_size);
         packet->iden = ident;
         global_libpsa_buffers.status_data->cd_changer_command = PSA_CD_CHANGER_COMM_NONE;
@@ -139,7 +139,7 @@ void libpsa_send_packet(uint16_t ident)
         memcpy(
             packet->data,
             global_libpsa_buffers.trip_data,
-            packet->data_size    
+            packet->data_size
         );
         packet->iden = ident;
         break;
@@ -297,39 +297,31 @@ void emf_audio_setting_update(int setting_num, int update_value_by)
 void emf_send_reply_request(uint16_t iden, uint8_t size)
 {
     mive_tss_task_packet_t* tss_packet = NULL;
-    struct mive_global_event event = {0};
 
     tss_packet = get_tss_task_buffer();
     tss_packet->iden = iden;
     tss_packet->packet_size = size;
     tss_packet->message_type = TSS_REPLY_REQUEST;
 
-    event.ev_data.tss_event_data = tss_packet;
-    event.event = MIVE_EVENT_TSS_WRITE_FRAME;
-
-    xQueueSendToBack(g_global_state.global_tss_queue, &event, 0);
+    tss_send_frame(tss_packet);
 }
 
 void emf_receive(uint16_t iden, uint8_t size)
 {
     mive_tss_task_packet_t* tss_packet = NULL;
-    struct mive_global_event event = {0};
 
     tss_packet = get_tss_task_buffer();
     tss_packet->iden = iden;
     tss_packet->packet_size = size;
     tss_packet->message_type = TSS_RECEIVE;
 
-    event.ev_data.tss_event_data = tss_packet;
-    event.event = MIVE_EVENT_TSS_WRITE_FRAME;
+    tss_send_frame(tss_packet);
 
-    xQueueSendToBack(g_global_state.global_tss_queue, &event, 0);
 }
 
 void rd3_send_command_packet(uint8_t* packet_data, uint8_t const packet_size)
 {
     mive_tss_task_packet_t* tss_packet = NULL;
-    struct mive_global_event event = {0};
 
     if(packet_size > 6)
     {
@@ -344,10 +336,7 @@ void rd3_send_command_packet(uint8_t* packet_data, uint8_t const packet_size)
     tss_packet->message_type = TSS_TRANSMIT;
     memcpy(tss_packet->packet, packet_data, packet_size);
 
-    event.ev_data.tss_event_data = tss_packet;
-    event.event = MIVE_EVENT_TSS_WRITE_FRAME;
-
-    xQueueSendToBack(g_global_state.global_tss_queue, &event, 0);
+    tss_send_frame(tss_packet);
 }
 
 void rd3_switch_source(
@@ -383,6 +372,7 @@ void rd3_switch_source(
 
     if(source_regval != 0x00)
     {
+        g_radio_state.radio_source_target = source_regval;
         cmd_buff[1] = source_regval;
         rd3_send_command_packet(cmd_buff, sizeof(cmd_buff) / sizeof(*cmd_buff));
         rd3_send_state_change();
@@ -399,23 +389,11 @@ void rd3_send_state_change()
     // If we are in economy mode, always send power off command
     if(!g_radio_state.economy_mode)
     {
-        // Update the radio state only when the accessory changes
-        if(g_radio_state.accessory != old_accessory)
-        {
-            if(g_radio_state.accessory)
-            {
-                cmd.data.data.power = g_radio_state.radio_state_ignition;
-            }
-            else{
-                cmd.data.data.power = 0;
-                g_radio_state.radio_state_target = 0;
-            }
+        cmd.data.data.power = g_radio_state.radio_state_target;
 
-            old_accessory = g_radio_state.accessory;
-        }
-        // Else update with custom power state
-        else{
-            cmd.data.data.power = g_radio_state.radio_state_target;
+        if(g_radio_state.radio_mute)
+        {
+            cmd.data.data.mute = 1;
         }
 
         cmd.data.data.keyboard_override = (g_radio_state.keyboard_override && g_radio_state.radio_state_current);
@@ -423,6 +401,38 @@ void rd3_send_state_change()
         cmd.data.data.loudness = (g_radio_state.radio_setting_loudness && g_radio_state.radio_state_current);
         cmd.data.data.key = cmd.data.data.power;
     }
+
+    rd3_send_command_packet((uint8_t*)(&cmd), sizeof(cmd));
+}
+
+void rd3_send_volume_relative(int8_t change)
+{
+    struct psa_van_rd3_command_change_audio_volume cmd = {0};
+
+    cmd.command_type = 0x13;
+    cmd.data.change_type = 1;
+
+    if(change < 0)
+    {
+        cmd.data.relative_type = 1;
+        cmd.data.volume = -change;
+    }
+    else{
+        cmd.data.relative_type = 0;
+        cmd.data.volume = change;
+    }
+
+    rd3_send_command_packet((uint8_t*)(&cmd), sizeof(cmd));
+}
+
+void rd3_send_seek_command(uint8_t seek_dir)
+{
+    struct psa_van_rd3_command_tuner_seek cmd = {
+        .command_type = 0x22,
+        .data.freq_scan_direction = seek_dir & 0x01,
+        .data.freq_scan_is_running = 1,
+        .data.manual_scan_in_progress = 0
+    };
 
     rd3_send_command_packet((uint8_t*)(&cmd), sizeof(cmd));
 }
@@ -448,7 +458,7 @@ void rd3_send_audio_settings()
 
     cmd.balance.value = ((uint8_t)(-g_radio_state.radio_setting_balance + 0x3f)) & 0x7f;
     cmd.fader.value = ((uint8_t)(-g_radio_state.radio_setting_fader + 0x3f)) & 0x7f;
-    
+
     cmd.bass.value = ((uint8_t)(g_radio_state.radio_setting_bass + 0x3f)) & 0x7f;
     cmd.treble.value = ((uint8_t)(g_radio_state.radio_setting_treble + 0x3f)) & 0x7f;
 

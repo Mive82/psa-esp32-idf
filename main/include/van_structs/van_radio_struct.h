@@ -91,7 +91,7 @@ struct psa_van_radio_preset_info
     uint8_t header;
     uint8_t data_type;       // Should be D3 for preset info
     uint8_t position : 4;    // Preset position
-    uint8_t : 4;             // Unknown
+    uint8_t band : 4;        // Radio band
     uint8_t station_name[8]; // ASCII, not NULL-terminated
     uint8_t footer;
 } __attribute__((packed));

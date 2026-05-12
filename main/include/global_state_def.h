@@ -36,8 +36,9 @@ struct mive_radio_state_t
     // Radio stuff
     uint8_t radio_state_current;
     uint8_t radio_state_target;
-    uint8_t radio_state_ignition;
+    uint8_t radio_state_user;
     uint8_t radio_source;
+    uint8_t radio_source_target;
     int8_t radio_setting_volume;
     int8_t radio_setting_bass;
     int8_t radio_setting_treble;
@@ -47,11 +48,23 @@ struct mive_radio_state_t
     uint8_t radio_setting_loudness;
     uint8_t radio_menu_state;
     uint8_t radio_554_state;
+    uint8_t radio_mute;
 
     uint8_t keyboard_override;
     uint8_t radio_cd_present;
     uint8_t accessory;
     uint8_t ignition;
+
+    struct {
+        uint8_t volume_minus : 1;
+        uint8_t volume_plus : 1;
+        uint8_t source : 1;
+        uint8_t seek_fwd : 1;
+        uint8_t seek_bwd : 1;
+        uint8_t : 3;
+    } stalk_buttons;
+    uint8_t stalk_wheel;
+    uint8_t radio_buttons[0x40];
 };
 
 extern struct mive_global_state_t g_global_state;
