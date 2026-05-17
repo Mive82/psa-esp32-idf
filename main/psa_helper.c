@@ -396,9 +396,9 @@ void rd3_send_state_change()
             cmd.data.data.mute = 1;
         }
 
-        cmd.data.data.keyboard_override = (g_radio_state.keyboard_override && g_radio_state.radio_state_current);
-        cmd.data.data.auto_volume = (g_radio_state.radio_setting_auto_vol && g_radio_state.radio_state_current);
-        cmd.data.data.loudness = (g_radio_state.radio_setting_loudness && g_radio_state.radio_state_current);
+        cmd.data.data.keyboard_override = (g_radio_state.keyboard_override && g_radio_state.radio_state_target);
+        cmd.data.data.auto_volume = (g_radio_state.radio_setting_auto_vol && g_radio_state.radio_state_target);
+        cmd.data.data.loudness = (g_radio_state.radio_setting_loudness && g_radio_state.radio_state_target);
         cmd.data.data.key = cmd.data.data.power;
     }
 
