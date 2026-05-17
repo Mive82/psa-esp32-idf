@@ -7,6 +7,7 @@
 #include "include/global_config.h"
 #include "include/global_tasks.h"
 #include "include/global_state_def.h"
+#include "include/cobs.h"
 
 #include "include/mive/common.h"
 #include "include/mive/psa_packet_defs.h"
@@ -59,6 +60,7 @@ void uart_task(void* params)
     esp_timer_handle_t uart_timer_handle;
     mive_uart_task_packet_t* uart_packet = NULL;
     uint8_t* uart_buffer = malloc(256);
+    uint8_t* send_buffer = malloc(256);
     uint8_t* uart_data_buffer = NULL;
     uint8_t uart_crc;
     struct psa_header* psa_packet_header = (struct psa_header*)uart_buffer;
@@ -73,7 +75,7 @@ void uart_task(void* params)
     };
     
     uart_config_t uart_config = {
-        .baud_rate = 500000,
+        .baud_rate = 1000000,
         .data_bits = UART_DATA_8_BITS,
         .parity = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
@@ -109,6 +111,9 @@ void uart_task(void* params)
                 uart_packet = event.ev_data.uart_task_data;
                 if(uart_packet->iden > PSA_MSP_MIN_IDENT && uart_packet->data_size < PSA_MSP_MAX_SIZE)
                 {
+                    unsigned int dec_len = uart_packet->data_size + sizeof(*psa_packet_header) + 1u;
+                    unsigned int send_len;
+
                     uart_data_buffer = uart_buffer + sizeof(*psa_packet_header);
 
                     psa_packet_header->ident = uart_packet->iden;
@@ -122,10 +127,16 @@ void uart_task(void* params)
 
                     uart_data_buffer[psa_packet_header->size] = uart_crc;
 
+                    ret = cobs_encode(uart_buffer, dec_len, send_buffer, 255, &send_len);
+
+                    if(ret != COBS_RET_SUCCESS)
+                    {
+                        ESP_LOGE(TAG, "cobs_encode: %d", ret);
+                    }
                     uart_write_bytes(
                         UART_NUM_2, 
-                        uart_buffer, 
-                        uart_packet->data_size + sizeof(*psa_packet_header) + 1u);
+                        send_buffer, 
+                        send_len);
                 }
                 vTaskDelay(1);
                 break;

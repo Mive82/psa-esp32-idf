@@ -12,4 +12,6 @@ My car doesn't have automatic AC, satnav or the CD changer, so those features wi
 ## Credits
 
 This uses code for the `TSS463C` and `VAN_RMT_RX` from [Peter Pinter](https://github.com/morcibacsi), but heavily modified
-to suit my needs.
+to suit my needs.  
+
+COBS implementation: [nanocobs](https://github.com/charlesnicholson/nanocobs).  

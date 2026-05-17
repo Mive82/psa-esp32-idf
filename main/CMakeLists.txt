@@ -1,2 +1,2 @@
-idf_component_register(SRCS "psa_helper.c" "van_packet_parser.c" "init.c" "uart_task.c" "tss_task.c" "van_rmt_task.c" "common.c" "van_rmt_rx.c" "tss463c.c" "main.c"
+idf_component_register(SRCS "cobs.c" "psa_helper.c" "van_packet_parser.c" "init.c" "uart_task.c" "tss_task.c" "van_rmt_task.c" "common.c" "van_rmt_rx.c" "tss463c.c" "main.c"
                     INCLUDE_DIRS ".")
