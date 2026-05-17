@@ -27,12 +27,12 @@ struct psa_van_radio_freq_info_scan_info
 
 struct psa_van_radio_freq_info_ta_rds_flags
 {
-    uint8_t ta_active : 1;
     uint8_t rds_active : 1;
+    uint8_t ta_active : 1;
     uint8_t : 3;
     uint8_t rds_data_present : 1;
     uint8_t ta_data_present : 1;
-    uint8_t : 1;
+    uint8_t ta_listening : 1;
 } __attribute__((packed));
 
 // Len 22

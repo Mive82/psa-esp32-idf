@@ -514,7 +514,7 @@ static int psa_parse_radio_tuner_iden(
 
     radio_data->freq = freq * 5 + 5000;
 
-    radio_data->signal_strength = van_data->signal_info & 0x0F;
+    radio_data->signal_strength = (van_data->signal_info & 0xF0) >> 4;
     // radio_data->freq = uint16_t(van_data->frequency[1]) << 8 | van_data->frequency[0]; // swap_endian_uint16(van_data->frequency);
 
     radio_data->preset = van_data->memory_position;
