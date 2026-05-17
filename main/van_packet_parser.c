@@ -519,6 +519,11 @@ static int psa_parse_radio_tuner_iden(
 
     radio_data->preset = van_data->memory_position;
 
+    radio_data->radio_flags.rds_enabled = van_data->rds_ta_flags.rds_active;
+    radio_data->radio_flags.ta_enabled = van_data->rds_ta_flags.ta_active;
+    radio_data->radio_flags.ta_active = van_data->rds_ta_flags.ta_listening;
+    radio_data->radio_flags.manual_mode = van_data->scan_info.manual_scan_in_progress;
+
     switch (van_data->band)
     {
     case PSA_VAN_BAND_FM1:

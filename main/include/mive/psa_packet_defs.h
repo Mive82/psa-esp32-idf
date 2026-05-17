@@ -165,6 +165,18 @@ struct psa_engine_packet
     uint8_t crc;
 } __attribute__((packed));
 
+struct psa_radio_flags
+{
+    uint8_t rds_enabled : 1;
+    uint8_t rds_active : 1;
+    uint8_t ta_enabled : 1;
+    uint8_t ta_active : 1;
+    uint8_t pty_enabled : 1;
+    uint8_t pty_active : 1;
+    uint8_t manual_mode : 1;
+    uint8_t : 1;
+} __attribute__((packed));
+
 struct psa_radio_data
 {
     uint16_t freq;           // freq * 100
@@ -172,6 +184,7 @@ struct psa_radio_data
     uint8_t preset;          // Preset number 1 - 6
     uint8_t signal_strength; // Signal Strength 0 - 15, probably. The values are random
     char station[9];         // ASCII station name. Do not treat as NULL-terminated.
+    struct psa_radio_flags radio_flags;
 } __attribute__((packed));
 
 struct psa_radio_packet
