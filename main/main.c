@@ -31,6 +31,7 @@
 #include "include/van_structs.h"
 
 #include "include/mive/psa_helper.h"
+#include "include/garage.h"
 
 
 #define ARRAY_SIZE_OFFSET   5
@@ -271,6 +272,7 @@ void ulp_adc_wake_up(unsigned int high_adc_treshold)
 
 void go_to_sleep(void)
 {
+    mive_garage_deinit();
     tss_sleep(&global_tss_instance);
     gpio_set_level(TSS_OE_ENABLE_PIN, 0);
     gpio_set_level(PSA_EXT_REG_PIN, 0);
@@ -312,6 +314,16 @@ void update_car_state(int new_state)
     {
         g_radio_state.radio_state_target = g_radio_state.radio_state_user;
         rd3_send_state_change();
+    }
+
+    if(new_state < PSA_STATE_IGNITION && g_global_car_state > new_state)
+    {
+        mive_garage_deinit();
+    }
+
+    if(new_state >= PSA_STATE_IGNITION && g_global_car_state < new_state)
+    {
+        mive_garage_init();
     }
 
     ESP_LOGI(TAG, "[%s] New state = %s", __func__, car_state_str[new_state]);
@@ -789,6 +801,10 @@ void main_task(void* params)
                     struct psa_trip_reset_data* data = (struct psa_trip_reset_data*)uart_recv_packet->data;
 
                     trip_reset = data->trip_meter;
+                } else if(uart_recv_packet->iden == PSA_IDENT_ACTIVATE_GARAGE)
+                {
+                    ESP_LOGI(TAG, "Activating garage");
+                    mive_garage_activate();
                 }
 
                 break;
