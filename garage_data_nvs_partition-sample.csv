@@ -1,0 +1,5 @@
+key,type,encoding,value
+garage_data,namespace,,
+pmk,data,hex2bin,00112233445566778899aabbccddeeff
+lmk,data,hex2bin,00112233445566778899aabbccddeeff
+garage_mac,data,hex2bin,001122334455

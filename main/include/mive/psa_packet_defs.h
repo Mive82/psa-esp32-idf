@@ -28,6 +28,7 @@ enum psa_idents
     PSA_IDENT_ESP32_TEMP = 0x5100, // Send the ESP temperature, borked
     
     PSA_IDENT_MAIN_APP = 0x6000, // Special ident used for my app, sends all packets as one packet. UNUSED
+    PSA_IDENT_ACTIVATE_GARAGE = 0x6001, // Send garage activation signal
 };
 
 #define PSA_MSP_MIN_IDENT PSA_IDENT_VERSIONS

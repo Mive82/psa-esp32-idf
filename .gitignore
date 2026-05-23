@@ -3,3 +3,5 @@ sdkconfig
 sdkconfig.old
 .vscode
 .clangd
+garage_data_nvs_partition.csv
+garage_data.bin
