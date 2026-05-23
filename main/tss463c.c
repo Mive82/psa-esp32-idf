@@ -127,7 +127,7 @@ static int tss_motorolla_mode(tss_instance_t *instance)
     spi_device_acquire_bus(instance->tss_handle, portMAX_DELAY);
     TSS_SELECT();
 
-    usleep(1);
+    usleep(2);
     spi_transaction_t transaction;
     memset(&transaction, 0, sizeof(transaction));
     transaction.user = instance;
@@ -141,10 +141,9 @@ static int tss_motorolla_mode(tss_instance_t *instance)
     {
         // printf("Error setting motorolla mode: Invalid response 0x%02X / 0xAA\n", transaction.rx_data[0]);
         return_val = 1;
-        goto error;
     }
 
-    usleep(2);
+    usleep(3);
 
     transaction.user = instance;
     transaction.tx_data[0] = 0x00;
@@ -157,15 +156,15 @@ static int tss_motorolla_mode(tss_instance_t *instance)
     {
         // printf("Error setting motorolla mode: Invalid response 0x%02X / 0x55\n", transaction.rx_data[0]);
         return_val = 1;
-        goto error;
     }
 
     usleep(2);
 
-    // gpio_set_level(instance->cs_pin, 1);
-    instance->chip_mode = TSS_MODE_IDLE;
+    if(return_val == 0)
+    {
+        instance->chip_mode = TSS_MODE_IDLE;
+    }
 
-error:
     TSS_DESELECT();
     spi_device_release_bus(instance->tss_handle);
 
@@ -270,7 +269,7 @@ IRAM_ATTR int tss_register_set(
     int return_val = 0;
     spi_transaction_t transaction = {0};
 
-    if(unlikely(instance->chip_mode == TSS_MODE_SLEEP))
+    if(unlikely(instance->chip_mode < TSS_MODE_IDLE))
     {
         // ESP_LOGE(TAG, "[%s] Chip in sleep mode", __func__);
         return -1;
@@ -337,6 +336,11 @@ IRAM_ATTR int tss_registers_set(
     int return_val = 0;
     spi_transaction_t transaction = {0};
 
+    if(unlikely(instance->chip_mode < TSS_MODE_IDLE))
+    {
+        return -1;
+    }
+
     vPortEnterCriticalSafe(&tss_spinlock);
     // printf("Setting %d registers starting from addr %d\n", count, reg_addr);
     spi_device_acquire_bus(instance->tss_handle, portMAX_DELAY);
@@ -399,6 +403,11 @@ IRAM_ATTR int tss_register_get(
 {
     int return_val = 0;
     spi_transaction_t transaction = {0};
+
+    if(unlikely(instance->chip_mode < TSS_MODE_IDLE))
+    {
+        return -1;
+    }
 
     vPortEnterCriticalSafe(&tss_spinlock);
     spi_device_acquire_bus(instance->tss_handle, portMAX_DELAY);
@@ -463,9 +472,8 @@ IRAM_ATTR int tss_registers_get(
         return 1;
     }
 
-    if(unlikely(instance->chip_mode == TSS_MODE_SLEEP))
+    if(unlikely(instance->chip_mode < TSS_MODE_IDLE))
     {
-        // ESP_LOGE(TAG, "[%s] Chip in sleep mode", __func__);
         return -1;
     }
 
@@ -609,7 +617,7 @@ int tss_create(tss_instance_t* instance)
     instance->buffers_size = 256;
     instance->interrupt_pin = TSS_INT_PIN;
     instance->tss_spi_semaphore = xSemaphoreCreateMutex();
-    instance->chip_mode = TSS_MODE_IDLE;
+    instance->chip_mode = TSS_MODE_INVALID;
 
     xSemaphoreGive(instance->tss_spi_semaphore);
 
@@ -633,18 +641,25 @@ int tss_create(tss_instance_t* instance)
 
 int tss_start(tss_instance_t *instance)
 {
+    int ret = 0;
     // When waking up from sleep, the TSS takes a couple tries to start up
     for(int i = 0; i < 100; ++i)
     {
-        if (tss_motorolla_mode(instance) == 0)
+        ret = tss_motorolla_mode(instance);
+        if (ret == 0)
         {
-            printf("Got motorolla mode\n");
             break;
         }
         else{
-            usleep(10000);
+            vTaskDelay(pdMS_TO_TICKS(10));
         }
     }
+
+    if(ret)
+    {
+        ESP_LOGE(TAG, "Failed to reset TSS");
+    }
+
     usleep(3);
 
     for (uint8_t i = 0; i < TSS_MAX_CHANNEL; i++)

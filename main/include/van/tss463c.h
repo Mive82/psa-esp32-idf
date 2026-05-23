@@ -37,9 +37,10 @@ enum tss_message_type {
 };
 
 enum tss_chip_mode {
-    TSS_MODE_IDLE = 0,
-    TSS_MODE_ACTIVE,
+    TSS_MODE_INVALID = 0,
     TSS_MODE_SLEEP,
+    TSS_MODE_IDLE,
+    TSS_MODE_ACTIVE,
 };
 
 struct tss_channel_t
