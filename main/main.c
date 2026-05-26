@@ -73,6 +73,9 @@ mive_tss_task_packet_t* global_tss_buffers;
 
 RTC_DATA_ATTR int rtc_data_valid = 0;
 RTC_DATA_ATTR struct psa_preset_data rtc_preset_data[4];
+RTC_DATA_ATTR struct mive_radio_rtc_state_t rtc_radio_state;
+RTC_DATA_ATTR uint32_t rtc_fuel_usage_ml;
+RTC_DATA_ATTR uint32_t rtc_distance_m;
 
 void main_task(void* params);
 void stats_task(void *arg);
@@ -291,7 +294,7 @@ void go_to_sleep(void)
 
 void update_ext_power_state(int power)
 {
-    // gpio_set_level(PSA_EXT_REG_PIN, power ? 1 : 0);
+    gpio_set_level(PSA_EXT_REG_PIN, power ? 1 : 0);
     // gpio_set_level(TSS_OE_ENABLE_PIN, power ? 1 : 0);
 
     g_global_ext_power_state = power;
@@ -340,7 +343,8 @@ void calculate_car_state(void)
     int engine_state = global_libpsa_buffers.dash_data->engine_running;
     int acc_state = global_libpsa_buffers.dash_data->accesories_on;
     int ign_state = global_libpsa_buffers.dash_data->ignition_on;
-    int headunit_state = global_libpsa_buffers.headunit_data->unit_powered_on;
+    // int headunit_state = global_libpsa_buffers.headunit_data->unit_powered_on;
+    int headunit_state = g_radio_state.radio_state_target;
     int lock_state = global_libpsa_buffers.status_data->doors_locked;
 
     // PSA_STATE_ENGINE_ON
@@ -395,6 +399,7 @@ void calculate_car_state(void)
         else
         {
             update_car_state(PSA_STATE_CAR_OFF);
+            ext_power_status = 1;
         }
     }
 
@@ -431,6 +436,24 @@ void app_main(void)
         memcpy(global_libpsa_buffers.presets_data_fm_1, &rtc_preset_data[PSA_PRESET_FM_1], sizeof(struct psa_preset_data));
         memcpy(global_libpsa_buffers.presets_data_fm_2, &rtc_preset_data[PSA_PRESET_FM_2], sizeof(struct psa_preset_data));
         memcpy(global_libpsa_buffers.presets_data_fm_ast, &rtc_preset_data[PSA_PRESET_FMAST], sizeof(struct psa_preset_data));
+
+        g_radio_state.radio_state_user          = rtc_radio_state.radio_state_user;
+        g_radio_state.radio_source_target       = rtc_radio_state.radio_source_target;
+        g_radio_state.radio_setting_volume      = rtc_radio_state.radio_setting_volume;
+        g_radio_state.radio_setting_bass        = rtc_radio_state.radio_setting_bass;
+        g_radio_state.radio_setting_treble      = rtc_radio_state.radio_setting_treble;
+        g_radio_state.radio_setting_balance     = rtc_radio_state.radio_setting_balance;
+        g_radio_state.radio_setting_fader       = rtc_radio_state.radio_setting_fader;
+        g_radio_state.radio_setting_auto_vol    = rtc_radio_state.radio_setting_auto_vol;
+        g_radio_state.radio_setting_loudness    = rtc_radio_state.radio_setting_loudness;
+        global_libpsa_buffers.fuel_data->dist_covered_m_last = rtc_distance_m;
+        global_libpsa_buffers.fuel_data->fuel_used_ml_last = rtc_fuel_usage_ml;
+    }
+    else
+    {
+        // Default radio state
+        g_radio_state.radio_source_target = PSA_RADIO_TUNER;
+        g_radio_state.radio_state_user = 1;
     }
 
 #if (ESP32_BOARD_TYPE != DEVKIT)
@@ -537,11 +560,7 @@ void main_task(void* params)
 
     tss_init(&g_global_state);
 
-    g_radio_state.radio_source_target = PSA_RADIO_TUNER;
-
     // Setup the TSS packet events
-
-    g_radio_state.radio_state_user = 1;
 
     emf_receive(0x8c4, 3);
     emf_receive(0x9c4, 2);
@@ -582,8 +601,6 @@ void main_task(void* params)
     esp_timer_start_periodic(timer_handle, 100000);
     esp_timer_start_once(timer_handle_oneshot, 1000000);
 
-    g_radio_state.radio_state_user = 1;
-
     ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC_CHANNEL_5, &adc_raw));
     ESP_ERROR_CHECK(adc_cali_raw_to_voltage(cali_handle, adc_raw, &voltage_in));
 
@@ -591,7 +608,7 @@ void main_task(void* params)
     // ESP_LOGI(TAG, "Voltage: %.3f", g_bat_voltage);
     global_libpsa_buffers.status_data->voltage = (uint16_t)(g_bat_voltage * 1000);
 
-    if (unlikely(g_bat_voltage < 2.0f))
+    if (unlikely(g_bat_voltage < BATTERY_SLEEP_THRESHOLD))
     {
         struct mive_global_event sleep_event = {
             .ev_data = {0},
@@ -707,7 +724,7 @@ void main_task(void* params)
                 libpsa_send_packet(PSA_IDENT_CAR_STATUS);
                 esp_timer_start_once(timer_handle_oneshot, 50000);
 
-                if (unlikely(g_bat_voltage < 2.0f))
+                if (unlikely(g_bat_voltage < BATTERY_SLEEP_THRESHOLD))
                 {
                     struct mive_global_event sleep_event = {
                         .ev_data = {0},
@@ -818,6 +835,20 @@ void main_task(void* params)
                 memcpy(&rtc_preset_data[PSA_PRESET_FM_1], global_libpsa_buffers.presets_data_fm_1, sizeof(struct psa_preset_data));
                 memcpy(&rtc_preset_data[PSA_PRESET_FM_2], global_libpsa_buffers.presets_data_fm_2, sizeof(struct psa_preset_data));
                 memcpy(&rtc_preset_data[PSA_PRESET_FMAST], global_libpsa_buffers.presets_data_fm_ast, sizeof(struct psa_preset_data));
+
+                rtc_radio_state.radio_state_user = g_radio_state.radio_state_user;
+                rtc_radio_state.radio_source_target = g_radio_state.radio_source_target;
+                rtc_radio_state.radio_setting_volume = g_radio_state.radio_setting_volume;
+                rtc_radio_state.radio_setting_bass = g_radio_state.radio_setting_bass;
+                rtc_radio_state.radio_setting_treble = g_radio_state.radio_setting_treble;
+                rtc_radio_state.radio_setting_balance = g_radio_state.radio_setting_balance;
+                rtc_radio_state.radio_setting_fader = g_radio_state.radio_setting_fader;
+                rtc_radio_state.radio_setting_auto_vol = g_radio_state.radio_setting_auto_vol;
+                rtc_radio_state.radio_setting_loudness = g_radio_state.radio_setting_loudness;
+
+                rtc_fuel_usage_ml = g_fuel_state.fuel_cons_total / 10;
+                rtc_distance_m = g_fuel_state.distance_total_dm / 10;
+
                 rtc_data_valid = 1;
                 go_to_sleep();
                 break;

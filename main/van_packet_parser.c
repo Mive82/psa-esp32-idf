@@ -354,10 +354,17 @@ static int psa_parse_rpm_iden(
     g_fuel_state.fuel_cons += fuel_used;
     g_fuel_state.dist_dm += distance;
 
+    g_fuel_state.distance_total_dm += distance;
+    g_fuel_state.fuel_cons_total += fuel_used;
+
+    data_buffers->fuel_data->dist_covered_m = g_fuel_state.distance_total_dm / 10;
+    data_buffers->fuel_data->fuel_used_ml = g_fuel_state.fuel_cons / 10;
+
     queue_packet = get_uart_packet_buffer();
 
     queue_packet->idens[0] = PSA_IDENT_ENGINE;
-    queue_packet->num_idens = 1;
+    queue_packet->idens[1] = PSA_IDENT_FUEL;
+    queue_packet->num_idens = 2;
 
     queue_event.ev_data.uart_update_data = queue_packet;
 
@@ -424,7 +431,7 @@ static int psa_parse_dash_iden(
 
     g_radio_state.economy_mode = van_data->economy_mode;
     g_radio_state.accessory = van_data->accesories_on;
-    g_radio_state.ignition = van_data->ignition_on;
+    g_radio_state.ignition = van_data->ignition_on; 
 
     return MIVE_OK;
 }
@@ -1289,7 +1296,7 @@ int psa_parse_van_packet(
         return -MIVE_ERR_INVALID_ARGUMENT;
     }
 
-    print_van_packet(iden, data, size);
+    // print_van_packet(iden, data, size);
 
     switch (iden)
     {
