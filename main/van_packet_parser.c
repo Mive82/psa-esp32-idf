@@ -322,6 +322,10 @@ static int psa_parse_rpm_iden(
     uint8_t const *const data,
     struct psa_output_data_buffers *data_buffers)
 {
+    uint8_t fuel_used;
+    uint16_t distance;
+    uint16_t distance_raw;
+
     struct mive_global_event queue_event = {
         .event = MIVE_EVENT_VAN_NEW_DATA
     };
@@ -336,8 +340,19 @@ static int psa_parse_rpm_iden(
 
     struct psa_van_rpm_speed_struct const *const rpm_data = (struct psa_van_rpm_speed_struct *)data;
 
+    fuel_used = rpm_data->fuel_usage - g_fuel_state.fuel_cons_last;
+    g_fuel_state.fuel_cons_last = rpm_data->fuel_usage;
+
+    distance_raw = be16toh(rpm_data->distance);
+
+    distance = distance_raw - g_fuel_state.dist_dm_last;
+    g_fuel_state.dist_dm_last = distance_raw;
+
     engine_data->rpm = be16toh(rpm_data->rpm);
     engine_data->speed = be16toh(rpm_data->speed);
+
+    g_fuel_state.fuel_cons += fuel_used;
+    g_fuel_state.dist_dm += distance;
 
     queue_packet = get_uart_packet_buffer();
 

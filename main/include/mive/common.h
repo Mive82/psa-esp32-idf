@@ -21,6 +21,7 @@ uint16_t get_iden_from_bytes(uint8_t const byte1, uint8_t const byte2);
 uint8_t dec_to_bcd(uint8_t input);
 uint8_t bcd_to_dec(uint8_t value);
 uint8_t psa_crc8_checksum(const uint8_t * ptr, uint32_t len);
+uint32_t psa_get_milliseconds_since_boot(void);
 
 
 #endif // MIVE_COMMON_H

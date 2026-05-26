@@ -20,6 +20,7 @@ struct psa_output_data_buffers
     struct psa_dash_data *dash_data; // PSA_IDENT_DASHBOARD
     struct psa_trip_data *trip_data; // PSA_IDENT_TRIP
     struct psa_status_data *status_data; // PSA_IDENT_CAR_STATUS
+    struct psa_fuel_data *fuel_data; // PSA_IDENT_FUEL
 };
 
 extern int psa_parse_van_packet(

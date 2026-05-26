@@ -40,9 +40,9 @@ void init_adc()
     //ESP_ERROR_CHECK(adc_continuous_new_handle(&adc_config, &adc_c_handle));
 
     ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config1, &adc1_handle));
-    
+
     ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC_CHANNEL_5, &config));
-    
+
     ESP_ERROR_CHECK(adc_cali_create_scheme_line_fitting(&lf_config, &cali_handle));
 
     g_global_state.adc_handle = adc1_handle;
@@ -67,6 +67,7 @@ void init_libpsa_packets(void)
     global_libpsa_buffers.door_data = calloc(1, sizeof(struct psa_door_data));
     global_libpsa_buffers.trip_data = calloc(1, sizeof(struct psa_trip_data));
     global_libpsa_buffers.status_data = calloc(1, sizeof(struct psa_status_data));
+    global_libpsa_buffers.fuel_data = calloc(1, sizeof(struct psa_fuel_data));
 
     global_uart_send_buffers = calloc(PSA_MAIN_UART_SEND_BUFFERS_NUM, sizeof(*global_uart_send_buffers));
     global_uart_receive_buffers = calloc(PSA_MAIN_UART_SEND_BUFFERS_NUM, sizeof(*global_uart_send_buffers));

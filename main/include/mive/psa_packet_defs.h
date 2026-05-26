@@ -20,6 +20,7 @@ enum psa_idents
     PSA_IDENT_HEADUNIT = 0x4008,      // Send the Headunit packet
     PSA_IDENT_CAR_STATUS = 0x4009,    // Send the Car status packet
     PSA_IDENT_CD_PLAYER = 0x4010,     // Send the CD player packet
+    PSA_IDENT_FUEL = 0x4011,          // Send the Fuel packet
     
     PSA_IDENT_SET_CD_CHANGER_DATA = 0x4501, // Send CD changer player data
     PSA_IDENT_SET_TRIP_RESET = 0x4502,      // Send trip reset request
@@ -419,6 +420,41 @@ struct psa_vin_packet
 {
     struct psa_header header;
     uint8_t vin[17]; // VIN in ASCII. NOT null-terminated
+    uint8_t crc;
+
+} __attribute__((packed));
+
+/**
+ * @brief Calculated fuel data from various sources
+ *
+ *
+ */
+struct psa_fuel_data
+{
+    // Calculated amount of fuel used in this session in mililiters
+    uint32_t fuel_used_ml;
+    // Calculated amount of fuel used in previous session in mililiters
+    uint32_t fuel_used_ml_last;
+
+    // Calculated distance traveled in this session in meters
+    uint32_t dist_covered_m;
+    // Calculated distance traveled in previous session in meters
+    uint32_t dist_covered_m_last;
+    // Calculated instant consumption.
+    // Divide by 10 to get `l/100km`.
+    // Sent as `0xffff` if unable to calculate.
+    uint16_t instant_consumption;
+    // Calculated hourly consumption.
+    // Divide by 10 to get `l/h`.
+    // Sent as `0xffff` if unable to calculate.
+    uint16_t hourly_consumption;
+
+} __attribute__((packed));
+
+struct psa_fuel_packet
+{
+    struct psa_header header;
+    struct psa_fuel_data data;
     uint8_t crc;
 
 } __attribute__((packed));

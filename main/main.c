@@ -37,6 +37,7 @@
 #define ARRAY_SIZE_OFFSET   5
 mive_global_state_t g_global_state = {0};
 struct mive_radio_state_t g_radio_state = {0};
+struct mive_fuel_state_t g_fuel_state = {0};
 volatile uint8_t g_global_car_state = PSA_STATE_CAR_SLEEP;
 volatile int g_global_ext_power_state = 1;
 volatile float g_bat_voltage = 0.0f;
@@ -683,6 +684,10 @@ void main_task(void* params)
                         trip_reset = 0;
 
                         tss_send_frame(tss_5e4_packet);
+                    }
+                    if(centis % 10 == 0)
+                    {
+                        psa_calculate_fuel();
                     }
                     if(centis % 10 == 1)
                     {

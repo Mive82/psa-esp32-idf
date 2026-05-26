@@ -38,4 +38,6 @@ extern void rd3_send_seek_command(uint8_t seek_dir);
 extern void emf_send_reply_request(uint16_t iden, uint8_t size);
 extern void emf_receive(uint16_t iden, uint8_t size);
 extern void emf_audio_setting_update(int setting_num, int update_value_by);
+
+extern void psa_calculate_fuel(void);
 #endif // _PSA_HELPER_H

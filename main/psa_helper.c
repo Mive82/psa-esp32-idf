@@ -2,11 +2,13 @@
 
 #include <stdint.h>
 #include <string.h>
+#include <sys/time.h>
 
 #include "include/mive/psa_helper.h"
 #include "include/van/van_packet_parser.h"
 #include "include/global_tasks.h"
 #include "include/global_state_def.h"
+#include "include/mive/common.h"
 
 #include "include/van_structs/van_rd3_command_struct.h"
 
@@ -17,6 +19,8 @@ static const char* const TAG = "PSAHELPER";
 static int uart_send_buffer_num = 0;
 
 static int old_accessory = 0;
+
+static uint32_t fuel_ms_last = 0;
 
 static struct psa_van_rd3_command_update_state rd3_state_cache = {0};
 
@@ -148,6 +152,15 @@ void libpsa_send_packet(uint16_t ident)
         memcpy(
             packet->data,
             global_libpsa_buffers.door_data,
+            packet->data_size
+        );
+        packet->iden = ident;
+        break;
+    case PSA_IDENT_FUEL:
+        packet->data_size = sizeof(*global_libpsa_buffers.fuel_data);
+        memcpy(
+            packet->data,
+            global_libpsa_buffers.fuel_data,
             packet->data_size
         );
         packet->iden = ident;
@@ -463,4 +476,66 @@ void rd3_send_audio_settings()
     cmd.treble.value = ((uint8_t)(g_radio_state.radio_setting_treble + 0x3f)) & 0x7f;
 
     rd3_send_command_packet((uint8_t*)(&cmd), sizeof(cmd));
+}
+
+// Fuel consumption calculation
+
+void psa_calculate_fuel()
+{
+    uint32_t time_ms = psa_get_milliseconds_since_boot();
+
+    const float step_time_s = (float)(time_ms - fuel_ms_last) * 0.001f;
+    fuel_ms_last = time_ms;
+
+    float dist_m = 0.f;
+    float time_h = 0.f;
+    float fuel_ml = 0.f;
+
+    float cons_distance = -1.f; // l/100k
+    float cons_hourly = -1.f; // l/h
+
+    fuel_ml = ((float)g_fuel_state.fuel_cons) * 0.1f;
+    dist_m = ((float)g_fuel_state.dist_dm) * 0.1f;
+
+    g_fuel_state.fuel_cons = 0;
+    g_fuel_state.dist_dm = 0;
+
+    if(dist_m > 0.5f)
+    {
+        // Mililiter per 100 Meters. Units cancel out.
+        cons_distance = 100.f * fuel_ml * (1.f / dist_m);
+    }
+
+    // Hourly
+
+    // Liters per hour = amount of liters / amount in hours
+    //                 = amount of mililiters / amount in milihours (seconds * (1 / 3.6))
+
+    if(step_time_s > 0.05f)
+    {
+        cons_hourly = fuel_ml / (step_time_s * (1.f / 3.6f));
+    }
+
+    // If we are assuming the step time is 1 second, this can be simplified
+    // cons_hourly = fuel_ml * 3.6f;
+
+    if(cons_distance >= 0.f)
+    {
+        global_libpsa_buffers.fuel_data->instant_consumption = (uint16_t)(cons_distance * 10.f);
+    }
+    else
+    {
+        global_libpsa_buffers.fuel_data->instant_consumption = 0xffff;
+    }
+
+    if(cons_hourly >= 0.f)
+    {
+        global_libpsa_buffers.fuel_data->hourly_consumption = (uint16_t)(cons_hourly * 10.f);
+    }
+    else
+    {
+        global_libpsa_buffers.fuel_data->hourly_consumption = 0xffff;
+    }
+
+    libpsa_send_packet(PSA_IDENT_FUEL);
 }

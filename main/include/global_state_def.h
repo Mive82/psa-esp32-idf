@@ -66,9 +66,19 @@ struct mive_radio_state_t
     uint8_t stalk_wheel;
     uint8_t radio_buttons[0x40];
 };
+struct mive_fuel_state_t
+{
+    uint32_t fuel_cons_total;   // Total fuel used in this session. Expressed in 1E-4 liters
+    uint32_t distance_total_dm; // Total distance travelled in this session.
+    uint16_t fuel_cons;         // Fuel used since last calculation. Expressed in 1E-4 liters
+    uint16_t dist_dm;           // Distance in decimeters covered since last calculation.
+    uint16_t dist_dm_last;      // Last value encountered in packets
+    uint8_t fuel_cons_last;     // Last value encountered in packets
+};
 
 extern struct mive_global_state_t g_global_state;
 extern struct mive_radio_state_t g_radio_state;
+extern struct mive_fuel_state_t g_fuel_state;
 extern volatile uint8_t g_global_car_state;
 extern volatile float g_bat_voltage;
 
