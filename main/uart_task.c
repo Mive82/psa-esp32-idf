@@ -73,7 +73,7 @@ void uart_task(void* params)
         .name = NULL,
         .skip_unhandled_events = true
     };
-    
+
     uart_config_t uart_config = {
         .baud_rate = 1000000,
         .data_bits = UART_DATA_8_BITS,
@@ -82,14 +82,14 @@ void uart_task(void* params)
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
     };
 
-    ESP_ERROR_CHECK(uart_driver_install(UART_NUM_2, uart_buffer_size, 0, 10, &uart_driver_queue, 0));
+    ESP_ERROR_CHECK(uart_driver_install(UART_NUM_2, uart_buffer_size, 0, 10, &uart_driver_queue, ESP_INTR_FLAG_IRAM));
     ESP_ERROR_CHECK(uart_param_config(UART_NUM_2, &uart_config));
     ESP_ERROR_CHECK(uart_set_pin(UART_NUM_2, 4, 5, -1, -1));
 
     xTaskCreatePinnedToCore(
         uart_rx_task,
         "uart_rx_task",
-        5120, 
+        5120,
         &g_global_state, 11, NULL, xPortGetCoreID());
 
     esp_timer_create(&uart_timer_create_args, &uart_timer_handle);
@@ -106,7 +106,7 @@ void uart_task(void* params)
                 // Send data
                 esp_timer_start_once(uart_timer_handle, 1000);
                 break;
-            
+
             case MIVE_EVENT_UART_SEND:
                 uart_packet = event.ev_data.uart_task_data;
                 if(uart_packet->iden > PSA_MSP_MIN_IDENT && uart_packet->data_size < PSA_MSP_MAX_SIZE)
@@ -133,10 +133,10 @@ void uart_task(void* params)
                     {
                         ESP_LOGE(TAG, "cobs_encode: %d", ret);
                     }
-                    uart_write_bytes(
-                        UART_NUM_2, 
-                        send_buffer, 
-                        send_len);
+                    else
+                    {
+                        uart_write_bytes(UART_NUM_2, send_buffer, send_len);
+                    }
                 }
                 vTaskDelay(1);
                 break;
@@ -191,7 +191,7 @@ void uart_rx_task(void* params)
                 }
             }
         }
-    
+
     }
 
 }

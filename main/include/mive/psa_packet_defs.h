@@ -21,13 +21,13 @@ enum psa_idents
     PSA_IDENT_CAR_STATUS = 0x4009,    // Send the Car status packet
     PSA_IDENT_CD_PLAYER = 0x4010,     // Send the CD player packet
     PSA_IDENT_FUEL = 0x4011,          // Send the Fuel packet
-    
+
     PSA_IDENT_SET_CD_CHANGER_DATA = 0x4501, // Send CD changer player data
     PSA_IDENT_SET_TRIP_RESET = 0x4502,      // Send trip reset request
-    
+
     PSA_IDENT_TIME = 0x5000,       // Send the ESP RTC time
     PSA_IDENT_ESP32_TEMP = 0x5100, // Send the ESP temperature, borked
-    
+
     PSA_IDENT_MAIN_APP = 0x6000, // Special ident used for my app, sends all packets as one packet. UNUSED
     PSA_IDENT_ACTIVATE_GARAGE = 0x6001, // Send garage activation signal
 };

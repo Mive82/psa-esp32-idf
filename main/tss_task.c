@@ -340,7 +340,7 @@ static int tss_get_frame(tss_instance_t* instance, struct tss_message_config* me
 
     data_size = regval & 0x1f;
 
-    ESP_LOGI(TAG, "Got %03x(%d)", iden, data_size);
+    // ESP_LOGI(TAG, "Got %03x(%d)", iden, data_size);
     if(data_size > 0 && data_size < 30)
     {
         tss_registers_get(instance, memory_addr + 1, output->packet, data_size);
@@ -421,7 +421,7 @@ void tss_process_interrupt(mive_tss_interrupt_packet_t interrupt_data)
     {
         return;
     }
-    ESP_LOGI(TAG, "Interrupt caused by channel %d - %x", channel, iden);
+    // ESP_LOGI(TAG, "Interrupt caused by channel %d - %x", channel, iden);
     // Process the internal queue for any backed up messages
 
     switch (message_configs[idx].message_type)

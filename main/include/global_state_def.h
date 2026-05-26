@@ -11,7 +11,7 @@
 #include "esp_adc/adc_oneshot.h"
 #include "esp_adc/adc_cali_scheme.h"
 
-struct mive_global_state_t 
+struct mive_global_state_t
 {
     // Tasks to VAN
     QueueHandle_t global_van_queue;
@@ -66,6 +66,21 @@ struct mive_radio_state_t
     uint8_t stalk_wheel;
     uint8_t radio_buttons[0x40];
 };
+
+// Radio state that should be preserved in sleep
+struct mive_radio_rtc_state_t
+{
+    uint8_t radio_state_user;
+    uint8_t radio_source_target;
+    int8_t radio_setting_volume;
+    int8_t radio_setting_bass;
+    int8_t radio_setting_treble;
+    int8_t radio_setting_balance;
+    int8_t radio_setting_fader;
+    uint8_t radio_setting_auto_vol;
+    uint8_t radio_setting_loudness;
+};
+
 struct mive_fuel_state_t
 {
     uint32_t fuel_cons_total;   // Total fuel used in this session. Expressed in 1E-4 liters
