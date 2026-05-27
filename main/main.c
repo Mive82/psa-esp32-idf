@@ -233,12 +233,21 @@ void ulp_adc_wake_up(unsigned int high_adc_treshold)
 {
     esp_err_t err;
     adc_oneshot_unit_handle_t adc1_handle = g_global_state.adc_handle;
+    adc_atten_t atten_val;
+
+    if(ESP32_BOARD_TYPE == PEZOV2)
+    {
+        atten_val = ADC_ATTEN_DB_6;
+    }
+    else{
+        atten_val = ADC_ATTEN_DB_12;
+    }
 
     ulp_adc_cfg_t adc_cfg = {
         .adc_n = PSA_ADC_UNIT,
         .channel = PSA_ADC_CHANNEL,
         .width = ADC_BITWIDTH_12,
-        .atten = ADC_ATTEN_DB_12,
+        .atten = atten_val,
         .ulp_mode = ADC_ULP_MODE_FSM
     };
 
@@ -605,7 +614,7 @@ void main_task(void* params)
     ESP_ERROR_CHECK(adc_cali_raw_to_voltage(cali_handle, adc_raw, &voltage_in));
 
     g_bat_voltage = (voltage_in * 0.001f * (ADC_R1 + ADC_R2)) / ADC_R2;
-    // ESP_LOGI(TAG, "Voltage: %.3f", g_bat_voltage);
+    ESP_LOGI(TAG, "Voltage: %.3f (%d) (%d)", g_bat_voltage, voltage_in, adc_raw);
     global_libpsa_buffers.status_data->voltage = (uint16_t)(g_bat_voltage * 1000);
 
     if (unlikely(g_bat_voltage < BATTERY_SLEEP_THRESHOLD))

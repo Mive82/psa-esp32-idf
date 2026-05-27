@@ -19,6 +19,19 @@ void init_adc()
 {
     adc_oneshot_unit_handle_t adc1_handle;
     adc_cali_handle_t cali_handle;
+    adc_atten_t atten_val;
+
+    if(ESP32_BOARD_TYPE == PEZOV2)
+    {
+        // Divider configuration allows up to 30 V.
+        // On Atten = 2, effective measurement is to around 1700 mV,
+        // or around 17 V with the divider. Max stable voltage I'm expecting
+        // is around 14.5 V
+        atten_val = ADC_ATTEN_DB_6;
+    }
+    else{
+        atten_val = ADC_ATTEN_DB_12;
+    }
 
     adc_oneshot_unit_init_cfg_t init_config1 = {
         .unit_id = PSA_ADC_UNIT,
@@ -27,11 +40,11 @@ void init_adc()
 
     adc_oneshot_chan_cfg_t config = {
         .bitwidth = ADC_BITWIDTH_12,
-        .atten = ADC_ATTEN_DB_12,
+        .atten = atten_val,
     };
 
     adc_cali_line_fitting_config_t lf_config = {
-        .atten = ADC_ATTEN_DB_12,
+        .atten = atten_val,
         .bitwidth = ADC_BITWIDTH_12,
         .default_vref = 0,
         .unit_id = PSA_ADC_UNIT
