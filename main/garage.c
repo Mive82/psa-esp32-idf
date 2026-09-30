@@ -161,7 +161,14 @@ static esp_err_t garage_espnow_init(nvs_handle_t mem_handle)
 void mive_garage_init(void)
 {
   nvs_handle_t mem_handle;
-  esp_err_t ret = nvs_flash_init_partition(garage_data_part_label);
+  esp_err_t ret;
+  
+  if(g_garage_instance.valid)
+  {
+    return;
+  }
+
+  ret = nvs_flash_init_partition(garage_data_part_label);
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
     ESP_LOGE(TAG, "Invalid nvs partition. Check if it's flashed correctly");
     g_garage_instance.valid = 0;

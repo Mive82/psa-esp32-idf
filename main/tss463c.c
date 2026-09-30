@@ -127,7 +127,7 @@ static int tss_motorolla_mode(tss_instance_t *instance)
     spi_device_acquire_bus(instance->tss_handle, portMAX_DELAY);
     TSS_SELECT();
 
-    usleep(2);
+    esp_rom_delay_us(2);
     spi_transaction_t transaction;
     memset(&transaction, 0, sizeof(transaction));
     transaction.user = instance;
@@ -143,7 +143,7 @@ static int tss_motorolla_mode(tss_instance_t *instance)
         return_val = 1;
     }
 
-    usleep(3);
+    esp_rom_delay_us(3);
 
     transaction.user = instance;
     transaction.tx_data[0] = 0x00;
@@ -158,7 +158,7 @@ static int tss_motorolla_mode(tss_instance_t *instance)
         return_val = 1;
     }
 
-    usleep(2);
+    esp_rom_delay_us(2);
 
     if(return_val == 0)
     {
@@ -285,7 +285,7 @@ IRAM_ATTR int tss_register_set(
     transaction.length = 8;
     transaction.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
 
-    usleep(1);
+    esp_rom_delay_us(1);
 
     spi_device_polling_transmit(instance->tss_handle, &transaction);
 
@@ -300,7 +300,7 @@ IRAM_ATTR int tss_register_set(
     transaction.length = 8;
     transaction.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
 
-    usleep(1);
+    esp_rom_delay_us(1);
     spi_device_polling_transmit(instance->tss_handle, &transaction);
 
     if (transaction.rx_data[0] != 0x55)
@@ -310,7 +310,7 @@ IRAM_ATTR int tss_register_set(
         goto error;
     }
 
-    usleep(2);
+    esp_rom_delay_us(2);
 
     transaction.tx_data[0] = reg_value;
     transaction.length = 8;
@@ -351,7 +351,7 @@ IRAM_ATTR int tss_registers_set(
     transaction.length = 8;
     transaction.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
 
-    usleep(1);
+    esp_rom_delay_us(1);
     spi_device_polling_transmit(instance->tss_handle, &transaction);
     if (transaction.rx_data[0] != 0xAA)
     {
@@ -362,7 +362,7 @@ IRAM_ATTR int tss_registers_set(
 
     transaction.tx_data[0] = TSS_WRITE;
 
-    usleep(1);
+    esp_rom_delay_us(1);
     spi_device_polling_transmit(instance->tss_handle, &transaction);
 
     if (transaction.rx_data[0] != 0x55)
@@ -372,7 +372,7 @@ IRAM_ATTR int tss_registers_set(
         goto error;
     }
 
-    usleep(3);
+    esp_rom_delay_us(3);
 
     // printf("Transmitting: ");
     for (i = 0; i < count; ++i)
@@ -380,12 +380,12 @@ IRAM_ATTR int tss_registers_set(
         transaction.tx_data[0] = values[i];
         spi_device_polling_transmit(instance->tss_handle, &transaction);
         // printf("%02x ", transaction.tx_data[0]);
-        usleep(2);
+        esp_rom_delay_us(2);
     }
 
     // printf("\n");
 
-    usleep(1);
+    esp_rom_delay_us(1);
 
 error:
 
@@ -419,7 +419,7 @@ IRAM_ATTR int tss_register_get(
     transaction.length = 8;
     transaction.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
 
-    usleep(1);
+    esp_rom_delay_us(1);
 
     spi_device_polling_transmit(instance->tss_handle, &transaction);
 
@@ -432,7 +432,7 @@ IRAM_ATTR int tss_register_get(
 
     transaction.tx_data[0] = TSS_READ;
 
-    usleep(2);
+    esp_rom_delay_us(2);
     spi_device_polling_transmit(instance->tss_handle, &transaction);
 
     if (transaction.rx_data[0] != 0x55)
@@ -442,12 +442,12 @@ IRAM_ATTR int tss_register_get(
         goto error;
     }
 
-    usleep(3);
+    esp_rom_delay_us(3);
 
     transaction.tx_data[0] = 0xFF;
     spi_device_polling_transmit(instance->tss_handle, &transaction);
 
-    usleep(1);
+    esp_rom_delay_us(1);
 
     *reg_value = transaction.rx_data[0];
 error:
@@ -488,7 +488,7 @@ IRAM_ATTR int tss_registers_get(
     transaction.length = 8;
     transaction.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
 
-    usleep(1);
+    esp_rom_delay_us(1);
 
     spi_device_polling_transmit(instance->tss_handle, &transaction);
 
@@ -501,7 +501,7 @@ IRAM_ATTR int tss_registers_get(
 
     transaction.tx_data[0] = TSS_READ;
 
-    usleep(2);
+    esp_rom_delay_us(2);
     spi_device_polling_transmit(instance->tss_handle, &transaction);
 
     if (transaction.rx_data[0] != 0x55)
@@ -511,14 +511,14 @@ IRAM_ATTR int tss_registers_get(
         goto error;
     }
 
-    usleep(2);
+    esp_rom_delay_us(2);
 
     for (int i = 0; i < count; ++i)
     {
         transaction.tx_data[0] = 0xFF;
         spi_device_polling_transmit(instance->tss_handle, &transaction);
         buffer[i] = transaction.rx_data[0];
-        usleep(2);
+        esp_rom_delay_us(2);
     }
 
 error:
@@ -660,7 +660,7 @@ int tss_start(tss_instance_t *instance)
         ESP_LOGE(TAG, "Failed to reset TSS");
     }
 
-    usleep(3);
+    esp_rom_delay_us(3);
 
     for (uint8_t i = 0; i < TSS_MAX_CHANNEL; i++)
     {
